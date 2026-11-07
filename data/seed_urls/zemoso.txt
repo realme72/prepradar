@@ -1,1 +1,12 @@
-# One URL per line: hand-picked Zemoso interview experiences for the extraction spike
+# Hand-picked Zemoso interview experiences for the extraction spike
+https://www.geeksforgeeks.org/?p=743995
+# blocked (JS bot check): https://www.naukri.com/code360/interview-experiences/zemoso-technologies-pvt-ltd/interview-experience-by-pandugolla-rohit-sai-on-campus-nov-2020-976
+# blocked (JS bot check): https://www.naukri.com/code360/interview-experiences/zemoso-technologies/interview-experience-off-campus-nov-2021-1390
+# blocked (JS bot check): https://www.naukri.com/code360/interview-experiences/zemoso/zemoso-technology-interview-experience-off-campus-feb-2022
+https://prachub.com/interview-experiences/zemoso-technologies-software-engineer-interview-backend-heavy-technical-rounds-baca00055b
+# blocked (429): https://dataford.io/interview-guides/zemoso-technologies/software-engineer/experiences
+https://dataford.io/interview-guides/zemoso-technologies
+https://www.ambitionbox.com/interviews/zemoso-technologies-interview-questions/senior-software-engineer-1
+https://ambitionbox.com/p/zemoso-technical-interview-QYKdadgM-8
+https://www.glassdoor.co.in/Interview/ZeMoSo-Interview-E825125-RVW75515598.htm
+https://www.glassdoor.co.uk/Interview/ZeMoSo-Principle-Software-Engineer-Interview-Questions-EI_IE825125.0,6_KO7,34.htm

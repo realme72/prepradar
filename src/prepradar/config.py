@@ -1,2 +1,9 @@
 """Settings loaded from environment / .env."""
-# TODO: pydantic-settings once dependencies are decided
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MAX_PAGE_CHARS = 15_000  # trim very long pages to cap tokens per extraction call

@@ -16,3 +16,7 @@
 1. LangChain: skip and use SDKs directly, or use selected utilities?
 2. User-submitted experiences in v1 or later?
 3. Target scope: Indian product/startup companies only, or general?
+
+## Revisit before public deployment
+- Glassdoor/AmbitionBox are auto-fetched during the spike (low volume, personal use). Their ToS forbid scraping: switch to paste-an-experience before any public launch.
+- Naukri Code360 (JS bot check) and Dataford sub-pages (429) are blocked; handle later.
