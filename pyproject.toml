@@ -1,0 +1,15 @@
+[project]
+name = "prepradar"
+version = "0.1.0"
+description = "Company-specific interview question intelligence"
+readme = "README.md"
+# torch / sentence-transformers wheels lag new Python releases; stay on 3.12
+requires-python = ">=3.12,<3.14"
+dependencies = []  # added once stack decisions are settled (docs/decisions.md)
+
+[project.scripts]
+prepradar = "prepradar.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
