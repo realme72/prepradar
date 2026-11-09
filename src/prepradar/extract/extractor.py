@@ -19,19 +19,15 @@ def extract(page: Page, company: str) -> list[ExtractedQuestion]:
     resp = client().responses.parse(
         model=config.OPENAI_MODEL,
         instructions=SYSTEM.format(company=company),
-        input=USER.format(
-            company=company,
-            published=page.published or "unknown",
-            site=page.site,
-            text=page.text[: config.MAX_PAGE_CHARS],
-        ),
+        input=USER.format(company=company, site=page.site, text=page.text[: config.MAX_PAGE_CHARS]),
         text_format=ExtractionResult,
         temperature=0,
     )
     result: ExtractionResult = resp.output_parsed
     if not result.is_interview_content:
         return []
+    posted_year = int(page.published[:4]) if page.published else None
     return [
-        ExtractedQuestion(**q.model_dump(), company=company, source_url=page.url)
+        ExtractedQuestion(**q.model_dump(), company=company, source_url=page.url, posted_year=posted_year)
         for q in result.questions
     ]
