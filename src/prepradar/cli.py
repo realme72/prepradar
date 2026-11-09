@@ -1,7 +1,9 @@
 """Entry point.
 
     prepradar init                                         # create tables, load seed tags
-    prepradar ingest zemoso data/seed_urls/zemoso.txt      # fetch + extract + store (skips seen URLs)
+    prepradar search zemoso                                # dry run: which pages would we ingest?
+    prepradar ingest zemoso [--limit 15]                   # search + fetch + extract + store (skips seen URLs)
+    prepradar ingest zemoso --urls data/seed_urls/zemoso.txt
     prepradar report zemoso [--track Backend] [--since 2023]
     prepradar ask zemoso "caching and performance" [--track Backend] [--since 2023] [-k 10]
     prepradar topics [--discovered]
@@ -39,22 +41,53 @@ def cmd_init() -> None:
         print(f"schema ready, {db.init(conn)} seed tags added")
 
 
-def cmd_ingest(company: str, urls_file: str) -> None:
-    from prepradar.extract.extractor import extract, match_tag
-    from prepradar.sources.fetch import fetch
+def find_candidates(company: str) -> list:
+    from prepradar.sources.search import find_experience_urls
+
+    return find_experience_urls(company)
+
+
+def cmd_search(company: str) -> None:
     from prepradar.store import db
-    from prepradar.store.embeddings import embed
 
     with db.connect() as conn:
         seen = db.seen_urls(conn)
-        for url in read_urls(urls_file):
+    results = find_candidates(company)
+    print(f"{len(results)} candidate pages for {company}\n")
+    for r in results:
+        state = f"cached ({seen[r.url]})" if r.url in seen else "new"
+        text = "has text" if r.raw_content else "no text"
+        print(f"  [{state:22s}] [{text}]  {r.title[:70]}\n      {r.url}")
+
+
+def cmd_ingest(company: str, urls_file: str | None, limit: int) -> None:
+    from prepradar.extract.extractor import extract, match_tag
+    from prepradar.sources.fetch import fetch, page_from_text
+    from prepradar.store import db
+    from prepradar.store.embeddings import embed
+
+    if urls_file:
+        candidates = [(url, None, None) for url in read_urls(urls_file)]
+    else:
+        candidates = [(r.url, r.title, r.raw_content) for r in find_candidates(company)]
+        print(f"search found {len(candidates)} candidate pages")
+
+    processed = 0
+    with db.connect() as conn:
+        seen = db.seen_urls(conn)
+        for url, title, raw_text in candidates:
             if url in seen:
                 print(f"  cached ({seen[url]})  {url}")
                 continue
-            page = fetch(url)
+            if processed >= limit:
+                print(f"  limit of {limit} new pages reached; run again for the rest")
+                break
+            # our own fetch gives the publish date; fall back to the search provider's copy
+            page = fetch(url) or page_from_text(url, title, raw_text)
             if page is None:
                 print(f"  blocked/empty, will retry next run  {url}")
                 continue
+            processed += 1
             firsthand, qs = extract(page, company, db.vocabulary(conn))
             posted_year = int(page.published[:4]) if page.published else None
             status = "extracted" if firsthand else "not_firsthand"
@@ -145,9 +178,13 @@ def main() -> None:
 
     sub.add_parser("init", help="create tables and load seed tags")
 
-    p = sub.add_parser("ingest", help="fetch URLs, extract questions, store them")
+    p = sub.add_parser("search", help="list candidate pages without extracting")
     p.add_argument("company")
-    p.add_argument("urls_file")
+
+    p = sub.add_parser("ingest", help="find pages, extract questions, store them")
+    p.add_argument("company")
+    p.add_argument("--urls", dest="urls_file", help="use a URL list instead of web search")
+    p.add_argument("--limit", type=int, default=15, help="max new pages sent to the LLM this run")
 
     for name, help_ in (("report", "all questions grouped by category"), ("ask", "search questions by meaning")):
         p = sub.add_parser(name, help=help_)
@@ -162,10 +199,19 @@ def main() -> None:
     p.add_argument("--discovered", action="store_true", help="only tags the system added")
 
     args = parser.parse_args()
+    try:
+        run(args)
+    except RuntimeError as e:  # config problems like a missing API key
+        raise SystemExit(f"error: {e}")
+
+
+def run(args: argparse.Namespace) -> None:
     if args.cmd == "init":
         cmd_init()
+    elif args.cmd == "search":
+        cmd_search(args.company)
     elif args.cmd == "ingest":
-        cmd_ingest(args.company, args.urls_file)
+        cmd_ingest(args.company, args.urls_file, args.limit)
     elif args.cmd == "report":
         cmd_report(args.company, args.track, args.since)
     elif args.cmd == "ask":

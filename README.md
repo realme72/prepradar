@@ -32,7 +32,8 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
 ## Usage (local)
 
     createdb prepradar && uv run prepradar init
-    uv run prepradar ingest zemoso data/seed_urls/zemoso.txt
+    uv run prepradar search zemoso          # dry run: candidate pages
+    uv run prepradar ingest zemoso --limit 15
     uv run prepradar report zemoso --track Backend --since 2023
     uv run prepradar ask zemoso "caching and performance"
     uv run prepradar topics --discovered
@@ -42,7 +43,7 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
 - [x] Project scaffold, draft schema, decisions log
 - [x] Extraction spike: Zemoso URLs → categorised questions (OpenAI)
 - [x] pgvector storage: insert-time dedupe, auto-discovered tags, semantic `ask`
-- [ ] Search providers (Tavily, swappable to Serper/Brave)
+- [x] Search providers (Tavily, falls through to Serper/Brave on quota)
 - [ ] LangGraph pipeline + CLI report
 - [ ] FastAPI backend + React UI
 

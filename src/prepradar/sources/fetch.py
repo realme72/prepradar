@@ -23,6 +23,13 @@ def site_of(url: str) -> str:
     return host.split(".")[0]
 
 
+def page_from_text(url: str, title: str | None, text: str | None) -> Page | None:
+    """Build a Page from text a search provider already fetched (no publish date)."""
+    if not text or len(text) < MIN_TEXT_CHARS or any(m in text for m in BLOCK_MARKERS):
+        return None
+    return Page(url=url, site=site_of(url), title=title, text=text)
+
+
 def fetch(url: str) -> Page | None:
     try:
         r = httpx.get(url, headers=UA, follow_redirects=True, timeout=20)
