@@ -1,8 +1,9 @@
 """Page text -> list[ExtractedQuestion] via OpenAI structured output."""
 from openai import OpenAI
+from pydantic import BaseModel, Field
 
 from prepradar import config
-from prepradar.extract.prompts import SYSTEM, USER
+from prepradar.extract.prompts import SYSTEM, USER, format_vocabulary
 from prepradar.models import ExtractedQuestion, ExtractionResult, Page
 
 _client: OpenAI | None = None
@@ -15,10 +16,33 @@ def client() -> OpenAI:
     return _client
 
 
-def extract(page: Page, company: str) -> list[ExtractedQuestion]:
+class TagMatch(BaseModel):
+    same_as: str | None = Field(description="The existing tag that means the same topic, or null if none does")
+
+
+def match_tag(proposed: str, candidates: list[str]) -> str | None:
+    """Ask the LLM whether a proposed tag duplicates one of a few shortlisted tags."""
     resp = client().responses.parse(
         model=config.OPENAI_MODEL,
-        instructions=SYSTEM.format(company=company),
+        instructions=(
+            "You maintain a tag vocabulary for interview questions. Decide whether the proposed "
+            "tag names the SAME topic as one of the existing tags (synonym, abbreviation, or "
+            "rewording). A narrower or merely related topic is NOT the same: 'Java Streams' is "
+            "not 'Event Streaming', 'GraphQL' is not 'NoSQL', 'Spring Security' is not 'Spring Boot'."
+        ),
+        input=f"Proposed tag: {proposed}\nExisting tags: {', '.join(candidates)}",
+        text_format=TagMatch,
+        temperature=0,
+    )
+    same = resp.output_parsed.same_as
+    return same if same in candidates else None
+
+
+def extract(page: Page, company: str, vocabulary: dict[str, str]) -> tuple[bool, list[ExtractedQuestion]]:
+    """Returns (is_firsthand, questions). vocabulary maps tag name -> category."""
+    resp = client().responses.parse(
+        model=config.OPENAI_MODEL,
+        instructions=SYSTEM.format(company=company, vocabulary=format_vocabulary(vocabulary)),
         input=USER.format(
             company=company,
             site=page.site,
@@ -29,10 +53,10 @@ def extract(page: Page, company: str) -> list[ExtractedQuestion]:
         temperature=0,
     )
     result: ExtractionResult = resp.output_parsed
-    if not result.is_interview_content:
-        return []
+    if not result.is_firsthand:
+        return False, []
     posted_year = int(page.published[:4]) if page.published else None
-    return [
+    return True, [
         ExtractedQuestion(**q.model_dump(), company=company, source_url=page.url, posted_year=posted_year)
         for q in result.questions
     ]

@@ -1,130 +1,177 @@
 """Entry point.
 
-    prepradar extract zemoso data/seed_urls/zemoso.txt   # fetch + LLM extract -> data/raw/zemoso.json
-    prepradar pairs zemoso --low 0.75                    # similarity scores, to pick a dedupe threshold
-    prepradar report zemoso --threshold 0.88 [--track Backend]
+    prepradar init                                         # create tables, load seed tags
+    prepradar ingest zemoso data/seed_urls/zemoso.txt      # fetch + extract + store (skips seen URLs)
+    prepradar report zemoso [--track Backend] [--since 2023]
+    prepradar ask zemoso "caching and performance" [--track Backend] [--since 2023] [-k 10]
+    prepradar topics [--discovered]
 """
 import argparse
-import json
 from collections import defaultdict
 from pathlib import Path
 
-from prepradar.models import ExtractedQuestion
+from prepradar.models import Category, Track
 
-RAW_DIR = Path("data/raw")
-CATEGORY_ORDER = [
-    "DSA", "LLD", "HLD", "Backend", "Database", "Messaging & Streaming",
-    "Frontend", "ML/AI", "Behavioral", "Other",
-]
-# a Backend query should also surface Fullstack interviews, and vice versa
-RELATED_TRACKS = {
-    "Backend": {"Backend", "Fullstack", "General"},
-    "Frontend": {"Frontend", "Fullstack", "General"},
-    "Fullstack": {"Backend", "Frontend", "Fullstack", "General"},
-}
+CATEGORY_ORDER = list(Category.__args__)
+TRACKS = [t for t in Track.__args__ if t != "General"]
 
 
 def read_urls(path: str) -> list[str]:
     return [l.strip() for l in Path(path).read_text().splitlines() if l.strip() and not l.startswith("#")]
 
 
-def load_raw(company: str) -> list[ExtractedQuestion]:
-    return [ExtractedQuestion(**d) for d in json.loads((RAW_DIR / f"{company}.json").read_text())]
+def year_label(q: dict) -> str:
+    if q["interview_year"]:
+        return f"interviewed {q['interview_year']}"
+    return f"posted {q['posted_year']}" if q["posted_year"] else ""
 
 
-def cmd_extract(company: str, urls_file: str) -> None:
-    from prepradar.extract.extractor import extract
+def print_question(q: dict, prefix: str = "   • ") -> None:
+    seen = f"  ×{q['times_reported']}" if q["times_reported"] > 1 else ""
+    meta = " · ".join(x for x in (", ".join(q["topics"] or []), q["track"], year_label(q)) if x)
+    print(f"{prefix}{q['text']}{seen}\n       {meta}")
+
+
+def cmd_init() -> None:
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        print(f"schema ready, {db.init(conn)} seed tags added")
+
+
+def cmd_ingest(company: str, urls_file: str) -> None:
+    from prepradar.extract.extractor import extract, match_tag
     from prepradar.sources.fetch import fetch
+    from prepradar.store import db
+    from prepradar.store.embeddings import embed
 
-    all_questions = []
-    for url in read_urls(urls_file):
-        page = fetch(url)
-        if page is None:
-            print(f"  skip (blocked/empty)  {url}")
-            continue
-        qs = extract(page, company)
-        print(f"  {len(qs):3d} questions  [{page.site}, posted {page.published or '?'}]  {url}")
-        all_questions.extend(qs)
+    with db.connect() as conn:
+        seen = db.seen_urls(conn)
+        for url in read_urls(urls_file):
+            if url in seen:
+                print(f"  cached ({seen[url]})  {url}")
+                continue
+            page = fetch(url)
+            if page is None:
+                print(f"  blocked/empty, will retry next run  {url}")
+                continue
+            firsthand, qs = extract(page, company, db.vocabulary(conn))
+            posted_year = int(page.published[:4]) if page.published else None
+            status = "extracted" if firsthand else "not_firsthand"
+            source_id = db.add_source(conn, url, company, status, page.site, page.title, posted_year)
+            if not firsthand:
+                conn.commit()
+                print(f"  skipped: not a firsthand candidate experience  {url}")
+                continue
 
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    out = RAW_DIR / f"{company}.json"
-    out.write_text(json.dumps([q.model_dump(mode="json") for q in all_questions], indent=2))
-    print(f"\n{len(all_questions)} raw questions saved to {out}")
+            vecs = embed([q.text for q in qs]) if qs else []
+            dups, new_tags = 0, []
+            for q, vec in zip(qs, vecs):
+                qid, dup = db.add_question(conn, q, source_id, vec)
+                dups += dup
+                for tag in q.topics:
+                    tid, name, created = db.resolve_topic(conn, tag, q.category, match_tag)
+                    db.tag_question(conn, qid, tid)
+                    if created:
+                        new_tags.append(f"{name} ({q.category})")
+                    elif name != tag:
+                        print(f"      tag '{tag}' → existing '{name}'")
+            conn.commit()
+            print(f"  {len(qs):3d} questions, {dups} duplicates  [{page.site}]  {url}")
+            for t in new_tags:
+                print(f"      🆕 new tag: {t}")
 
 
-def cmd_pairs(company: str, low: float) -> None:
-    from prepradar.store.dedupe import close_pairs
+def cmd_report(company: str, track: str | None, since: int | None) -> None:
+    from prepradar.store import db
 
-    for score, a, b in close_pairs(load_raw(company), low):
-        print(f"{score:.3f}  {a.text}\n       {b.text}\n")
-
-
-def year_label(q: ExtractedQuestion) -> str:
-    if q.interview_year:
-        return f"interviewed {q.interview_year}"
-    return f"posted {q.posted_year}" if q.posted_year else ""
-
-
-def cmd_report(company: str, threshold: float, track: str | None) -> None:
-    from prepradar.store.dedupe import dedupe
-
-    questions = load_raw(company)
-    if track:
-        allowed = RELATED_TRACKS.get(track, {track, "General"})
-        questions = [q for q in questions if q.track in allowed]
-    merged = dedupe(questions, threshold)
-
-    specific = [m for m in merged if m.question.specific]
-    vague = [m for m in merged if not m.question.specific]
+    with db.connect() as conn:
+        questions = db.all_questions(conn, company, track, since)
+    specific = [q for q in questions if q["specific"]]
+    vague = [q for q in questions if not q["specific"]]
     by_cat = defaultdict(list)
-    for m in specific:
-        by_cat[m.question.category].append(m)
+    for q in specific:
+        by_cat[q["category"]].append(q)
 
-    title = f"{company}" + (f" · {track} track" if track else "")
-    print(f"{title}: {len(questions)} raw → {len(merged)} unique ({len(questions) - len(merged)} duplicates merged)\n")
+    filters = ", ".join(x for x in (f"{track} track" if track else "", f"since {since}" if since else "") if x)
+    print(f"{company}" + (f" ({filters})" if filters else "") + f": {len(questions)} unique questions\n")
     for cat in CATEGORY_ORDER:
-        items = sorted(by_cat.get(cat, []), key=lambda m: -m.times_reported)
-        if not items:
-            continue
-        print(f"── {cat} ({len(items)})")
-        for m in items:
-            q = m.question
-            seen = f"  ×{m.times_reported}" if m.times_reported > 1 else ""
-            meta = " · ".join(x for x in (", ".join(q.topics), q.track, year_label(q)) if x)
-            print(f"   • {q.text}{seen}\n       {meta}")
-            for v in m.variants:
-                print(f"       ≈ {v}")
-        print()
+        items = sorted(by_cat.get(cat, []), key=lambda q: -q["times_reported"])
+        if items:
+            print(f"── {cat} ({len(items)})")
+            for q in items:
+                print_question(q)
+            print()
     if vague:
         print(f"── Vague / not specific ({len(vague)})")
-        for m in vague:
-            print(f"   • {m.question.text}   [{m.question.category}]")
+        for q in vague:
+            print(f"   • {q['text']}   [{q['category']}]")
+
+
+def cmd_ask(company: str, query: str, k: int, track: str | None, since: int | None) -> None:
+    from prepradar.store import db
+    from prepradar.store.embeddings import embed_query
+
+    with db.connect() as conn:
+        rows = db.search(conn, company, embed_query(query), k, track, since)
+    print(f'"{query}" at {company}: top {len(rows)}\n')
+    for q in rows:
+        print_question(q, prefix=f"  {q['score']:.2f}  [{q['category']}] ")
+
+
+def cmd_topics(discovered_only: bool) -> None:
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT t.name, t.category, t.origin, count(qt.question_id) AS n
+               FROM topics t LEFT JOIN question_topics qt ON qt.topic_id = t.id
+               WHERE NOT %s OR t.origin = 'discovered'
+               GROUP BY t.id ORDER BY t.category, n DESC, t.name""",
+            (discovered_only,),
+        ).fetchall()
+    cat = None
+    for r in rows:
+        if r["category"] != cat:
+            cat = r["category"]
+            print(f"\n{cat}")
+        mark = "  🆕" if r["origin"] == "discovered" else ""
+        print(f"  {r['n']:3d}  {r['name']}{mark}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="prepradar")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("extract", help="fetch URLs and extract interview questions")
+    sub.add_parser("init", help="create tables and load seed tags")
+
+    p = sub.add_parser("ingest", help="fetch URLs, extract questions, store them")
     p.add_argument("company")
     p.add_argument("urls_file")
 
-    p = sub.add_parser("pairs", help="show similar question pairs with scores")
-    p.add_argument("company")
-    p.add_argument("--low", type=float, default=0.75)
+    for name, help_ in (("report", "all questions grouped by category"), ("ask", "search questions by meaning")):
+        p = sub.add_parser(name, help=help_)
+        p.add_argument("company")
+        if name == "ask":
+            p.add_argument("query")
+            p.add_argument("-k", type=int, default=10)
+        p.add_argument("--track", choices=TRACKS)
+        p.add_argument("--since", type=int, help="interview (or posted) year >= this")
 
-    p = sub.add_parser("report", help="deduped questions grouped by category")
-    p.add_argument("company")
-    p.add_argument("--threshold", type=float, default=0.88)
-    p.add_argument("--track", choices=["Backend", "Frontend", "Fullstack", "ML/AI", "Data", "Mobile", "QA", "DevOps", "Product"])
+    p = sub.add_parser("topics", help="tag vocabulary with usage counts")
+    p.add_argument("--discovered", action="store_true", help="only tags the system added")
 
     args = parser.parse_args()
-    if args.cmd == "extract":
-        cmd_extract(args.company, args.urls_file)
-    elif args.cmd == "pairs":
-        cmd_pairs(args.company, args.low)
+    if args.cmd == "init":
+        cmd_init()
+    elif args.cmd == "ingest":
+        cmd_ingest(args.company, args.urls_file)
     elif args.cmd == "report":
-        cmd_report(args.company, args.threshold, args.track)
+        cmd_report(args.company, args.track, args.since)
+    elif args.cmd == "ask":
+        cmd_ask(args.company, args.query, args.k, args.track, args.since)
+    elif args.cmd == "topics":
+        cmd_topics(args.discovered)
 
 
 if __name__ == "__main__":

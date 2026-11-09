@@ -1,48 +1,52 @@
 """Core schemas.
 
 QuestionDraft / ExtractionResult are what the LLM fills in (no URL: the model
-must never invent one). ExtractedQuestion is the stored record, where we attach
-the source URL and posted_year ourselves.
+must never invent one). ExtractedQuestion is the record we store, where we
+attach the source URL and posted_year ourselves.
 """
 from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 Category = Literal[
-    "DSA", "LLD", "HLD", "Backend", "Database", "Messaging & Streaming",
+    "DSA", "LLD", "HLD", "Backend", "Database", "Messaging & Streaming", "DevOps & Cloud",
     "Frontend", "ML/AI", "Behavioral", "Other",
 ]
 Round = Literal["OA", "Technical", "Managerial", "HR", "Unknown"]
 # Role family the candidate interviewed for; retrieval filters on this.
 Track = Literal["Backend", "Frontend", "Fullstack", "ML/AI", "Data", "Mobile", "QA", "DevOps", "Product", "General"]
-# Fixed vocabulary so tags group cleanly; one question can carry several.
-Topic = Literal[
-    # DSA
-    "Arrays", "Strings", "Linked List", "Stack/Queue", "Trees", "Graphs", "Dynamic Programming",
-    "Sorting/Searching", "Hashing", "Math/Puzzles",
-    # Backend
-    "Java", "Spring Boot", "Node.js", "Python", "Concurrency", "Memory/JVM", "REST/API",
-    "Auth/Security", "Caching", "Microservices", "Testing", "OS/Networking",
-    # Database
-    "SQL", "DBMS Concepts", "Normalization", "Indexing/Transactions", "Database Design", "NoSQL",
-    # Messaging & Streaming
-    "Kafka", "Message Queues", "Event Streaming",
-    # Design
-    "OOP", "Design Patterns", "SOLID", "Distributed Systems", "Scalability", "Debugging/Production",
-    # Frontend
-    "JavaScript", "TypeScript", "React", "CSS/HTML", "Browser/Performance",
-    # Infra / ML / other
-    "DevOps/CI-CD", "Cloud", "Machine Learning", "GenAI/LLM", "Aptitude", "Project Discussion", "HR",
-]
+
+# Starting tag vocabulary, tag -> home category. Loaded into the topics table;
+# the extractor may propose new tags, which are added there as 'discovered'.
+SEED_TOPICS: dict[str, str] = {
+    **dict.fromkeys(
+        ["Arrays", "Strings", "Linked List", "Stack/Queue", "Trees", "Graphs", "Dynamic Programming",
+         "Sorting/Searching", "Hashing", "Math/Puzzles"], "DSA"),
+    **dict.fromkeys(["OOP", "Design Patterns", "SOLID"], "LLD"),
+    **dict.fromkeys(["Distributed Systems", "Scalability"], "HLD"),
+    **dict.fromkeys(
+        ["Java", "Spring Boot", "Node.js", "Python", "Concurrency", "Memory/JVM", "REST/API",
+         "Auth/Security", "Caching", "Microservices", "Testing", "OS/Networking",
+         "Production Troubleshooting"], "Backend"),
+    **dict.fromkeys(
+        ["SQL", "DBMS Concepts", "Normalization", "Indexing/Transactions", "Database Design", "NoSQL"],
+        "Database"),
+    **dict.fromkeys(["Kafka", "Message Queues", "Event Streaming"], "Messaging & Streaming"),
+    **dict.fromkeys(["CI/CD", "Docker/Kubernetes", "Cloud", "Monitoring/Observability"], "DevOps & Cloud"),
+    **dict.fromkeys(["JavaScript", "TypeScript", "React", "CSS/HTML", "Browser/Performance"], "Frontend"),
+    **dict.fromkeys(["Machine Learning", "GenAI/LLM"], "ML/AI"),
+    **dict.fromkeys(["Project Discussion", "HR"], "Behavioral"),
+    "Aptitude": "Other",
+}
 
 
 class QuestionDraft(BaseModel):
     text: str = Field(description="The question as asked, rewritten as one clear self-contained question")
     specific: bool = Field(
-        description="False if too vague to practise from, e.g. 'Solve two medium problems' or 'Asked JS questions'"
+        description="False only if the report names an area without the actual question"
     )
     category: Category
-    topics: list[Topic] = Field(description="1-3 topic tags")
+    topics: list[str] = Field(description="1-3 tags, reusing the given vocabulary whenever one fits")
     round: Round
     role: str | None = Field(description="Role title as written, e.g. 'Senior Software Engineer 1'; null if not stated")
     track: Track
@@ -59,11 +63,13 @@ class QuestionDraft(BaseModel):
     @field_validator("topics")
     @classmethod
     def unique_topics(cls, v):
-        return list(dict.fromkeys(v))
+        return list(dict.fromkeys(t.strip() for t in v if t.strip()))
 
 
 class ExtractionResult(BaseModel):
-    is_interview_content: bool = Field(description="False if the page has no real interview experience/questions")
+    is_firsthand: bool = Field(
+        description="True only if the page is a candidate describing their own interview at the company"
+    )
     questions: list[QuestionDraft]
 
 

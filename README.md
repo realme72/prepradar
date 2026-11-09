@@ -23,17 +23,25 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
       graph/           LangGraph state, nodes, graph wiring
       sources/         web search (Tavily) + page fetch/clean
       extract/         LLM extraction prompts + structured output
-      store/           pgvector access, embeddings, dedupe
+      store/           pgvector access (insert-time dedupe, tag resolution, hybrid search), embeddings
       report/          final categorised report writer
     db/schema.sql      Postgres + pgvector schema
     data/seed_urls/    hand-picked URLs for extraction experiments
     docs/decisions.md  design decisions log
 
+## Usage (local)
+
+    createdb prepradar && uv run prepradar init
+    uv run prepradar ingest zemoso data/seed_urls/zemoso.txt
+    uv run prepradar report zemoso --track Backend --since 2023
+    uv run prepradar ask zemoso "caching and performance"
+    uv run prepradar topics --discovered
+
 ## Status: in progress
 
 - [x] Project scaffold, draft schema, decisions log
-- [ ] Extraction spike: ~10 Zemoso URLs → categorised questions (OpenAI)
-- [ ] Embeddings + dedupe into pgvector
+- [x] Extraction spike: Zemoso URLs → categorised questions (OpenAI)
+- [x] pgvector storage: insert-time dedupe, auto-discovered tags, semantic `ask`
 - [ ] Search providers (Tavily, swappable to Serper/Brave)
 - [ ] LangGraph pipeline + CLI report
 - [ ] FastAPI backend + React UI
