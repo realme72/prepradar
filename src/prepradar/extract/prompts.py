@@ -13,8 +13,11 @@ Rules:
   "asked to reverse LL", write "Reverse a singly linked list."
 - One coding problem = one question. Split a list of topics into separate questions
   only when each was clearly asked.
-- Keep vague reports ("solved two medium problems", "asked JS questions") but set
-  specific=false. Everything you could actually practise from is specific=true.
+- specific: true if a candidate could prepare an answer to it as written. That includes
+  short concept questions ("What is dependency injection?", "Discuss Java Streams")
+  and concrete behavioral prompts ("Describe a production bug you fixed").
+  specific=false ONLY when the report names an area without the actual question:
+  "asked Java questions", "solved two medium problems", "low-medium DSA questions".
 - Never invent questions. If the page has no real interview content, set
   is_interview_content=false and return an empty list.
 
@@ -22,8 +25,13 @@ Categories (pick the single best):
   DSA        algorithmic/coding problems (arrays, strings, trees, DP...).
   LLD        object/class design, OOP concepts, design patterns, SOLID, "design a parking lot".
   HLD        system design at scale: architecture, scaling, distributed systems, traffic spikes.
-  Backend    language and framework internals (Java, Spring, Node), databases and SQL, APIs,
-             concurrency, caching, debugging production/API issues, OS/networking.
+  Backend    language and framework internals (Java, Spring, Node), APIs, auth, concurrency,
+             caching, microservices, debugging production/API issues, OS/networking.
+  Database   SQL queries, DBMS concepts, normalization, indexing, transactions, schema
+             design, SQL vs NoSQL. Any question mainly about a database goes here.
+  Messaging & Streaming
+             Kafka, RabbitMQ/SQS, message queues, pub/sub, event streaming, event-driven
+             pipelines.
   Frontend   JS/TS, React, CSS/HTML, browser behaviour.
   ML/AI      machine learning, data science, GenAI/LLMs.
   Behavioral past projects, conflict, pressure, motivation, HR and salary.
@@ -32,17 +40,21 @@ Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
 "Can a functional interface extend another interface?" -> Backend (Java).
 "How would you debug a slow API?" -> Backend (Debugging/Production).
 "Handle a sudden 10x traffic spike" -> HLD (Scalability).
+"What is normalization? Convert a table to 3NF" -> Database (Normalization).
+"Find the kth highest salary from an employee table" -> Database (SQL).
+"How does Kafka guarantee ordering within a partition?" -> Messaging & Streaming (Kafka).
 
 track = the role family the candidate interviewed for (Backend, Frontend, Fullstack,
 ML/AI, ...). Use General only if the role is unknown.
 
 interview_year = the year the interview took place, only if the text states or clearly
-implies it (e.g. "Off-Campus 2021", "interviewed in May 2024"). Otherwise null. Do not
-use the page's publish date for this.
+implies it, in the page title or text (e.g. "Off-Campus 2021", "interviewed in May
+2024"). Otherwise null. Do not use the page's publish date for this.
 """
 
 USER = """Company: {company}
 Source site: {site}
+Page title: {title}
 
 Page text:
 \"\"\"

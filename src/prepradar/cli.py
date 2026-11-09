@@ -12,7 +12,10 @@ from pathlib import Path
 from prepradar.models import ExtractedQuestion
 
 RAW_DIR = Path("data/raw")
-CATEGORY_ORDER = ["DSA", "LLD", "HLD", "Backend", "Frontend", "ML/AI", "Behavioral", "Other"]
+CATEGORY_ORDER = [
+    "DSA", "LLD", "HLD", "Backend", "Database", "Messaging & Streaming",
+    "Frontend", "ML/AI", "Behavioral", "Other",
+]
 # a Backend query should also surface Fullstack interviews, and vice versa
 RELATED_TRACKS = {
     "Backend": {"Backend", "Fullstack", "General"},

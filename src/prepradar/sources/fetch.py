@@ -35,4 +35,4 @@ def fetch(url: str) -> Page | None:
         return None
     if any(m in doc.text for m in BLOCK_MARKERS):
         return None
-    return Page(url=url, site=site_of(url), text=doc.text, published=doc.date)
+    return Page(url=url, site=site_of(url), title=doc.title, text=doc.text, published=doc.date)

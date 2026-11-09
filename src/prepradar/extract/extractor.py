@@ -19,7 +19,12 @@ def extract(page: Page, company: str) -> list[ExtractedQuestion]:
     resp = client().responses.parse(
         model=config.OPENAI_MODEL,
         instructions=SYSTEM.format(company=company),
-        input=USER.format(company=company, site=page.site, text=page.text[: config.MAX_PAGE_CHARS]),
+        input=USER.format(
+            company=company,
+            site=page.site,
+            title=page.title or "unknown",
+            text=page.text[: config.MAX_PAGE_CHARS],
+        ),
         text_format=ExtractionResult,
         temperature=0,
     )

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS questions (
     id              BIGSERIAL PRIMARY KEY,
     company         TEXT NOT NULL,      -- normalised slug, e.g. 'zemoso'
     text            TEXT NOT NULL,
-    category        TEXT NOT NULL,      -- DSA | LLD | HLD | Backend | Frontend | Behavioral | Other
+    category        TEXT NOT NULL,      -- see models.Category
     round           TEXT,               -- OA | Technical-1 | Technical-2 | Managerial | HR
     role            TEXT,               -- backend, frontend, fullstack, sde1...
     year            INT,

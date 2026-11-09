@@ -8,7 +8,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
-Category = Literal["DSA", "LLD", "HLD", "Backend", "Frontend", "ML/AI", "Behavioral", "Other"]
+Category = Literal[
+    "DSA", "LLD", "HLD", "Backend", "Database", "Messaging & Streaming",
+    "Frontend", "ML/AI", "Behavioral", "Other",
+]
 Round = Literal["OA", "Technical", "Managerial", "HR", "Unknown"]
 # Role family the candidate interviewed for; retrieval filters on this.
 Track = Literal["Backend", "Frontend", "Fullstack", "ML/AI", "Data", "Mobile", "QA", "DevOps", "Product", "General"]
@@ -19,8 +22,11 @@ Topic = Literal[
     "Sorting/Searching", "Hashing", "Math/Puzzles",
     # Backend
     "Java", "Spring Boot", "Node.js", "Python", "Concurrency", "Memory/JVM", "REST/API",
-    "Auth/Security", "SQL", "Database Design", "NoSQL", "Caching", "Messaging/Kafka",
-    "Microservices", "Testing", "OS/Networking",
+    "Auth/Security", "Caching", "Microservices", "Testing", "OS/Networking",
+    # Database
+    "SQL", "DBMS Concepts", "Normalization", "Indexing/Transactions", "Database Design", "NoSQL",
+    # Messaging & Streaming
+    "Kafka", "Message Queues", "Event Streaming",
     # Design
     "OOP", "Design Patterns", "SOLID", "Distributed Systems", "Scalability", "Debugging/Production",
     # Frontend
@@ -50,6 +56,11 @@ class QuestionDraft(BaseModel):
         # the model sometimes emits the string "null" instead of a JSON null
         return None if isinstance(v, str) and v.strip().lower() in ("", "null", "none", "n/a") else v
 
+    @field_validator("topics")
+    @classmethod
+    def unique_topics(cls, v):
+        return list(dict.fromkeys(v))
+
 
 class ExtractionResult(BaseModel):
     is_interview_content: bool = Field(description="False if the page has no real interview experience/questions")
@@ -65,6 +76,7 @@ class ExtractedQuestion(QuestionDraft):
 class Page(BaseModel):
     url: str
     site: str
+    title: str | None = None
     text: str
     published: str | None = None
 
