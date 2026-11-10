@@ -115,7 +115,7 @@ QUERY_TEMPLATES = [
     "{company} interview questions glassdoor ambitionbox",
 ]
 # Pages that are never candidate write-ups: job listings, the company's own site, social posts.
-SKIP_URL_PARTS = ("/jobs", "/job-listings", "/careers", "linkedin.com", "youtube.com", "instagram.com",
+SKIP_URL_PARTS = ("/jobs", "/job-listings", "/careers", "youtube.com", "instagram.com",
                   "facebook.com", "/salaries", "/reviews/")
 # People-data and company-directory sites. Besides being useless, some list
 # individuals' emails and phone numbers, which we must never collect.
@@ -134,6 +134,8 @@ def find_experience_urls(company: str, queries: list[str] | None = None, per_que
             text = f"{r.title} {r.snippet} {url}".lower()
             if url in seen or any(p in url.lower() for p in SKIP_URL_PARTS + BLOCKED_SITES):
                 continue
+            if "linkedin.com" in url.lower() and "/posts/" not in url.lower():
+                continue  # candidates' own posts only; never profiles, jobs or company pages
             if company.lower() not in text or company.lower() + "." in url.lower():
                 continue  # not about the company, or the company's own website
             if "interview" not in text:

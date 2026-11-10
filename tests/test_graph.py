@@ -5,8 +5,8 @@ def route(**state):
     return nodes.after_coverage({"gaps": [], "retries": 0, "last_new_questions": 0, **state})
 
 
-def test_no_gaps_goes_to_report():
-    assert route(gaps=[]) == "report"
+def test_no_gaps_goes_to_retrieve():
+    assert route(gaps=[]) == "retrieve"
 
 
 def test_gaps_on_first_pass_trigger_a_targeted_search():
@@ -14,11 +14,11 @@ def test_gaps_on_first_pass_trigger_a_targeted_search():
 
 
 def test_stops_when_retry_budget_is_spent():
-    assert route(gaps=["HLD"], retries=nodes.MAX_RETRIES, last_new_questions=5) == "report"
+    assert route(gaps=["HLD"], retries=nodes.MAX_RETRIES, last_new_questions=5) == "retrieve"
 
 
 def test_stops_when_a_targeted_search_found_nothing_new():
-    assert route(gaps=["HLD"], retries=1, last_new_questions=0) == "report"
+    assert route(gaps=["HLD"], retries=1, last_new_questions=0) == "retrieve"
 
 
 def test_keeps_going_while_targeted_searches_add_questions():

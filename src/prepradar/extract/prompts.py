@@ -23,6 +23,7 @@ Extraction rules:
   specific=false ONLY when the report names an area without the actual question:
   "asked Java questions", "solved two medium problems", "low-medium DSA questions".
 - Never invent questions.
+- Never include people's names (candidates, interviewers, post authors) in question text.
 
 Categories (pick the single best):
   DSA        algorithmic/coding problems (arrays, strings, trees, DP...).

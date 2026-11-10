@@ -15,6 +15,10 @@ UA = {
     "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 }
 BLOCK_MARKERS = ("Almost there... just a few more seconds",)
+# Sites that show scripts a login wall: use the search provider's copy of the text first.
+PROVIDER_TEXT_FIRST = ("linkedin.com",)
+# Sites whose page titles carry the author's name ("Jane Doe on LinkedIn: ..."); not stored.
+NAMED_TITLE_SITES = ("linkedin.com",)
 MIN_TEXT_CHARS = 300
 
 
@@ -43,3 +47,15 @@ def fetch(url: str) -> Page | None:
     if any(m in doc.text for m in BLOCK_MARKERS):
         return None
     return Page(url=url, site=site_of(url), title=doc.title, text=doc.text, published=doc.date)
+
+
+def load_page(url: str, title: str | None, raw_text: str | None) -> Page | None:
+    """Our own fetch (gives the publish date), else the search provider's text,
+    in the opposite order for login-walled sites."""
+    if any(s in url for s in PROVIDER_TEXT_FIRST):
+        page = page_from_text(url, title, raw_text) or fetch(url)
+    else:
+        page = fetch(url) or page_from_text(url, title, raw_text)
+    if page and any(s in url for s in NAMED_TITLE_SITES):
+        page.title = None
+    return page

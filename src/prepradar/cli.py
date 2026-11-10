@@ -7,6 +7,7 @@
     prepradar report zemoso [--track Backend] [--since 2023]
     prepradar ask zemoso "caching and performance" [--track Backend] [--since 2023] [-k 10]
     prepradar run zemoso --track Backend                   # the LangGraph pipeline end to end
+    prepradar guide zemoso --track Backend                 # grounded prep guide from stored data only
     prepradar graph                                        # Mermaid diagram of the graph
     prepradar topics [--discovered] [--merge OLD INTO] [--delete TAG]
 """
@@ -109,11 +110,20 @@ def cmd_report(company: str, track: str | None, since: int | None) -> None:
     print_report(questions, report_header(company, track, since))
 
 
-def cmd_run(company: str, track: str | None, since: int | None, limit: int, refresh: bool, quiet: bool) -> None:
+def save_guide(company: str, track: str | None, md: str) -> Path:
+    out = Path("reports") / (company + (f"-{track.lower().replace('/', '-')}" if track else "") + ".md")
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(md)
+    return out
+
+
+def cmd_run(company: str, track: str | None, since: int | None, limit: int, refresh: bool,
+            list_only: bool) -> None:
     from prepradar.graph.build import build
 
     graph = build()
-    inputs = {"company": company, "track": track, "since": since, "limit": limit, "refresh": refresh}
+    inputs = {"company": company, "track": track, "since": since, "limit": limit, "refresh": refresh,
+              "with_guide": not list_only}
     final: dict = {}
     # stream_mode="updates" yields {node_name: fields_it_returned} after each node
     for update in graph.stream(inputs, stream_mode="updates"):
@@ -124,9 +134,25 @@ def cmd_run(company: str, track: str | None, since: int | None, limit: int, refr
     gaps = final.get("gaps") or []
     if gaps:
         print(f"\n⚠ still thin after searching: {', '.join(gaps)} (few candidates write these rounds up)")
-    if not quiet:
-        print()
+    print()
+    if final.get("guide_md"):
+        print(final["guide_md"])
+        print(f"saved {save_guide(company, track, final['guide_md'])}")
+    else:
         print_report(final.get("questions", []), report_header(company, track, since))
+
+
+def cmd_guide(company: str, track: str | None, since: int | None) -> None:
+    from prepradar.report.writer import render_markdown, write_guide
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        questions = db.all_questions(conn, company, track, since)
+    if not questions:
+        raise RuntimeError(f"no questions stored for {company}; run `prepradar run {company}` first")
+    md = render_markdown(company, track, write_guide(company, track, questions))
+    print(md)
+    print(f"saved {save_guide(company, track, md)}")
 
 
 def cmd_graph() -> None:
@@ -202,7 +228,13 @@ def main() -> None:
     p.add_argument("--since", type=int)
     p.add_argument("--limit", type=int, default=10, help="max new pages per search round")
     p.add_argument("--refresh", action="store_true", help="search even if cached data is sufficient")
-    p.add_argument("--quiet", action="store_true", help="show the graph trace only, not the full report")
+    p.add_argument("--list", dest="list_only", action="store_true",
+                   help="print the raw question list instead of the LLM-written guide")
+
+    p = sub.add_parser("guide", help="LLM-written prep guide from stored questions (no searching)")
+    p.add_argument("company")
+    p.add_argument("--track", choices=TRACKS)
+    p.add_argument("--since", type=int)
 
     sub.add_parser("graph", help="print the pipeline graph as a Mermaid diagram")
 
@@ -230,7 +262,9 @@ def run(args: argparse.Namespace) -> None:
     elif args.cmd == "ask":
         cmd_ask(args.company, args.query, args.k, args.track, args.since)
     elif args.cmd == "run":
-        cmd_run(args.company, args.track, args.since, args.limit, args.refresh, args.quiet)
+        cmd_run(args.company, args.track, args.since, args.limit, args.refresh, args.list_only)
+    elif args.cmd == "guide":
+        cmd_guide(args.company, args.track, args.since)
     elif args.cmd == "graph":
         cmd_graph()
     elif args.cmd == "topics":

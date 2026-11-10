@@ -190,7 +190,7 @@ def tag_question(conn, question_id: int, topic_id: int) -> None:
 # ── retrieval ────────────────────────────────────────────────────────────────
 
 QUESTION_VIEW = """
-    SELECT q.id, q.text, q.specific, q.category, q.track, q.role,
+    SELECT q.id, q.text, q.specific, q.category, q.round, q.track, q.role,
            q.interview_year, q.posted_year,
            (SELECT count(*) FROM question_sources s WHERE s.question_id = q.id) AS times_reported,
            (SELECT array_agg(t.name ORDER BY t.name) FROM question_topics qt

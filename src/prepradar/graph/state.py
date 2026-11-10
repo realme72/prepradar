@@ -15,6 +15,7 @@ class GraphState(TypedDict, total=False):
     since: int | None
     limit: int          # max new pages sent to the LLM per search round
     refresh: bool       # search even if cached data looks sufficient
+    with_guide: bool    # run the LLM guide writer at the end (default True)
 
     # working state
     cached: bool                                  # check_cache: enough fresh data already?
@@ -28,4 +29,5 @@ class GraphState(TypedDict, total=False):
 
     # output
     questions: list[dict]
+    guide_md: str                                 # the grounded prep guide, as Markdown
     log: Annotated[list[str], operator.add]       # human-readable decisions, in order

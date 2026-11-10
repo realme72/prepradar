@@ -5,7 +5,7 @@ Shared by `prepradar ingest` and the graph's ingest node.
 from dataclasses import dataclass, field
 
 from prepradar.extract.extractor import extract, match_tag
-from prepradar.sources.fetch import fetch, page_from_text
+from prepradar.sources.fetch import load_page
 from prepradar.store import db
 from prepradar.store.embeddings import embed
 
@@ -35,8 +35,7 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
         if stats.pages >= limit:
             print(f"  limit of {limit} new pages reached; run again for the rest")
             break
-        # our own fetch gives the publish date; fall back to the search provider's copy
-        page = fetch(c.url) or page_from_text(c.url, c.title, c.raw_text)
+        page = load_page(c.url, c.title, c.raw_text)
         if page is None:
             print(f"  blocked/empty, will retry next run  {c.url}")
             continue

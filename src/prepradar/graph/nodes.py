@@ -95,10 +95,21 @@ def coverage_check(state: GraphState) -> dict:
             "log": [f"coverage_check: {summary}" + (f" → thin: {', '.join(gaps)}" if gaps else " → all covered")]}
 
 
-def report(state: GraphState) -> dict:
+def retrieve(state: GraphState) -> dict:
     with db.connect() as conn:
         questions = db.all_questions(conn, state["company"], state.get("track"), state.get("since"))
-    return {"questions": questions, "log": [f"report: {len(questions)} questions"]}
+    return {"questions": questions, "log": [f"retrieve: {len(questions)} questions"]}
+
+
+def write_guide(state: GraphState) -> dict:
+    from prepradar.report.writer import render_markdown, write_guide as write
+
+    if not state.get("with_guide", True) or not state["questions"]:
+        return {"log": ["write_guide: skipped"]}
+    g = write(state["company"], state.get("track"), state["questions"])
+    note = f", {g.dropped_citations} bad citations removed" if g.dropped_citations else ", all citations valid"
+    return {"guide_md": render_markdown(state["company"], state.get("track"), g),
+            "log": [f"write_guide: {len(g.guide.sections)} sections from {len(g.questions)} questions{note}"]}
 
 
 # ── routers ──────────────────────────────────────────────────────────────────
@@ -110,9 +121,9 @@ def after_cache(state: GraphState) -> str:
 def after_coverage(state: GraphState) -> str:
     retries = state.get("retries", 0)
     if not state["gaps"]:
-        return "report"
+        return "retrieve"
     if retries >= MAX_RETRIES:
-        return "report"  # tried enough; report what we have and flag the gaps
+        return "retrieve"  # tried enough; report what we have and flag the gaps
     if retries > 0 and not state.get("last_new_questions"):
-        return "report"  # the last targeted search found nothing new; more won't help
+        return "retrieve"  # the last targeted search found nothing new; more won't help
     return "plan_queries"

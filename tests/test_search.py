@@ -66,3 +66,15 @@ def test_drops_people_directories_and_non_interview_pages(keys, monkeypatch):
     monkeypatch.setattr(search.httpx, "request", request)
     urls = [r.url for r in search.find_experience_urls("zemoso")]
     assert urls == ["https://learncloud.medium.com/zemoso-devops-interview-questions"]
+
+
+def test_linkedin_posts_allowed_profiles_and_jobs_not(keys, monkeypatch):
+    results = [
+        {"url": "https://www.linkedin.com/posts/someone_zemoso-interview-l2-round-activity-1", "title": "Zemoso Interview L2 Round", "content": ""},
+        {"url": "https://www.linkedin.com/in/someone-zemoso", "title": "Someone - Zemoso interview panel", "content": ""},
+        {"url": "https://www.linkedin.com/company/zemoso-technologies", "title": "Zemoso interview tips", "content": ""},
+    ]
+    request, _ = fake_request({"api.tavily.com": (200, {"results": results})})
+    monkeypatch.setattr(search.httpx, "request", request)
+    urls = [r.url for r in search.find_experience_urls("zemoso")]
+    assert urls == ["https://www.linkedin.com/posts/someone_zemoso-interview-l2-round-activity-1"]
