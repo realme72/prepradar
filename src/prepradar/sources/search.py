@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from prepradar import config  # noqa: F401  (loads .env so API keys are set)
+
 TIMEOUT = 30
 # HTTP codes these APIs use for "quota exhausted / plan limit" (Tavily uses 432/433)
 QUOTA_CODES = {402, 429, 432, 433}
@@ -121,11 +123,12 @@ BLOCKED_SITES = ("rocketreach.co", "leadiq.com", "zoominfo.com", "apollo.io", "s
                  "contactout.com", "crunchbase.com", "mapquest.com", "tavily.com/knowledge", "tracxn.com")
 
 
-def find_experience_urls(company: str, per_query: int = 8) -> list[SearchResult]:
-    """Run all query templates, keep unique results that plausibly mention the company."""
+def find_experience_urls(company: str, queries: list[str] | None = None, per_query: int = 8) -> list[SearchResult]:
+    """Run the queries (default: QUERY_TEMPLATES), keep unique results that plausibly mention the company."""
+    queries = queries or [t.format(company=company) for t in QUERY_TEMPLATES]
     seen: dict[str, SearchResult] = {}
-    for template in QUERY_TEMPLATES:
-        provider, results = search(template.format(company=company), per_query)
+    for query in queries:
+        provider, results = search(query, per_query)
         for r in results:
             url = r.url.split("#")[0]
             text = f"{r.title} {r.snippet} {url}".lower()

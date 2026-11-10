@@ -211,6 +211,19 @@ def _filters(company: str, track: str | None, since: int | None) -> tuple[str, l
     return " AND ".join(where), params
 
 
+def category_counts(conn, company: str, track: str | None = None, since: int | None = None) -> dict[str, int]:
+    """Specific (non-vague) questions per category, under the same filters as retrieval."""
+    where, params = _filters(company, track, since)
+    rows = conn.execute(
+        f"SELECT q.category, count(*) AS n FROM questions q WHERE {where} AND q.specific GROUP BY 1", params
+    ).fetchall()
+    return {r["category"]: r["n"] for r in rows}
+
+
+def last_fetched(conn, company: str):
+    return conn.execute("SELECT max(fetched_at) AS t FROM sources WHERE company = %s", (company,)).fetchone()["t"]
+
+
 def all_questions(conn, company: str, track: str | None = None, since: int | None = None) -> list[dict]:
     where, params = _filters(company, track, since)
     return conn.execute(f"{QUESTION_VIEW} FROM questions q WHERE {where}", params).fetchall()

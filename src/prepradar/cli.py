@@ -6,6 +6,8 @@
     prepradar ingest zemoso --urls data/seed_urls/zemoso.txt
     prepradar report zemoso [--track Backend] [--since 2023]
     prepradar ask zemoso "caching and performance" [--track Backend] [--since 2023] [-k 10]
+    prepradar run zemoso --track Backend                   # the LangGraph pipeline end to end
+    prepradar graph                                        # Mermaid diagram of the graph
     prepradar topics [--discovered] [--merge OLD INTO] [--delete TAG]
 """
 import argparse
@@ -61,84 +63,26 @@ def cmd_search(company: str) -> None:
 
 
 def cmd_ingest(company: str, urls_file: str | None, limit: int) -> None:
-    from prepradar.extract.extractor import extract, match_tag
-    from prepradar.sources.fetch import fetch, page_from_text
+    from prepradar.pipeline import Candidate, ingest
     from prepradar.store import db
-    from prepradar.store.embeddings import embed
 
     if urls_file:
-        candidates = [(url, None, None) for url in read_urls(urls_file)]
+        candidates = [Candidate(url) for url in read_urls(urls_file)]
     else:
-        candidates = [(r.url, r.title, r.raw_content) for r in find_candidates(company)]
+        candidates = [Candidate(r.url, r.title, r.raw_content) for r in find_candidates(company)]
         print(f"search found {len(candidates)} candidate pages")
-
-    processed = 0
     with db.connect() as conn:
-        seen = db.seen_urls(conn)
-        for url, title, raw_text in candidates:
-            if url in seen:
-                print(f"  cached ({seen[url]})  {url}")
-                continue
-            if processed >= limit:
-                print(f"  limit of {limit} new pages reached; run again for the rest")
-                break
-            # our own fetch gives the publish date; fall back to the search provider's copy
-            page = fetch(url) or page_from_text(url, title, raw_text)
-            if page is None:
-                print(f"  blocked/empty, will retry next run  {url}")
-                continue
-            posted_year = int(page.published[:4]) if page.published else None
-            same = db.find_same_post(conn, company, page.text, page.title)
-            if same:
-                db.add_source(conn, url, company, "duplicate", page.site, page.title, posted_year, page.text)
-                conn.commit()
-                print(f"  same post as {same}, skipped  {url}")
-                continue
-            processed += 1
-            firsthand, qs = extract(page, company, db.vocabulary(conn))
-            status = "extracted" if firsthand else "not_firsthand"
-            source_id = db.add_source(conn, url, company, status, page.site, page.title, posted_year, page.text)
-            if not firsthand:
-                conn.commit()
-                print(f"  skipped: not a firsthand candidate experience  {url}")
-                continue
-
-            vecs = embed([q.text for q in qs]) if qs else []
-            dups, new_tags, mapped = 0, [], {}
-            for q, vec in zip(qs, vecs):
-                qid, dup = db.add_question(conn, q, source_id, vec)
-                dups += dup
-                for tag in q.topics:
-                    resolved = db.resolve_topic(conn, tag, q.category, match_tag)
-                    if resolved is None:
-                        continue
-                    tid, name, created = resolved
-                    db.tag_question(conn, qid, tid)
-                    if created:
-                        new_tags.append(f"{name} ({q.category})")
-                    elif name != tag:
-                        mapped[tag] = name
-            conn.commit()
-            print(f"  {len(qs):3d} questions, {dups} duplicates  [{page.site}]  {url}")
-            if mapped:
-                print("      tags mapped: " + ", ".join(f"{a} → {b}" for a, b in mapped.items()))
-            for t in new_tags:
-                print(f"      🆕 new tag: {t}")
+        ingest(conn, company, candidates, limit)
 
 
-def cmd_report(company: str, track: str | None, since: int | None) -> None:
-    from prepradar.store import db
-
-    with db.connect() as conn:
-        questions = db.all_questions(conn, company, track, since)
+def print_report(questions: list[dict], header: str) -> None:
     specific = [q for q in questions if q["specific"]]
     vague = [q for q in questions if not q["specific"]]
     by_cat = defaultdict(list)
     for q in specific:
         by_cat[q["category"]].append(q)
 
-    filters = ", ".join(x for x in (f"{track} track" if track else "", f"since {since}" if since else "") if x)
-    print(f"{company}" + (f" ({filters})" if filters else "") + f": {len(questions)} unique questions\n")
+    print(f"{header}: {len(questions)} unique questions\n")
     for cat in CATEGORY_ORDER:
         items = sorted(by_cat.get(cat, []), key=lambda q: -q["times_reported"])
         if items:
@@ -150,6 +94,45 @@ def cmd_report(company: str, track: str | None, since: int | None) -> None:
         print(f"── Vague / not specific ({len(vague)})")
         for q in vague:
             print(f"   • {q['text']}   [{q['category']}]")
+
+
+def report_header(company: str, track: str | None, since: int | None) -> str:
+    filters = ", ".join(x for x in (f"{track} track" if track else "", f"since {since}" if since else "") if x)
+    return company + (f" ({filters})" if filters else "")
+
+
+def cmd_report(company: str, track: str | None, since: int | None) -> None:
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        questions = db.all_questions(conn, company, track, since)
+    print_report(questions, report_header(company, track, since))
+
+
+def cmd_run(company: str, track: str | None, since: int | None, limit: int, refresh: bool, quiet: bool) -> None:
+    from prepradar.graph.build import build
+
+    graph = build()
+    inputs = {"company": company, "track": track, "since": since, "limit": limit, "refresh": refresh}
+    final: dict = {}
+    # stream_mode="updates" yields {node_name: fields_it_returned} after each node
+    for update in graph.stream(inputs, stream_mode="updates"):
+        for node, changes in update.items():
+            for line in changes.get("log", []):
+                print(f"▶ {line}")
+            final.update(changes)
+    gaps = final.get("gaps") or []
+    if gaps:
+        print(f"\n⚠ still thin after searching: {', '.join(gaps)} (few candidates write these rounds up)")
+    if not quiet:
+        print()
+        print_report(final.get("questions", []), report_header(company, track, since))
+
+
+def cmd_graph() -> None:
+    from prepradar.graph.build import build
+
+    print(build().get_graph().draw_mermaid())
 
 
 def cmd_ask(company: str, query: str, k: int, track: str | None, since: int | None) -> None:
@@ -213,6 +196,16 @@ def main() -> None:
         p.add_argument("--track", choices=TRACKS)
         p.add_argument("--since", type=int, help="interview (or posted) year >= this")
 
+    p = sub.add_parser("run", help="full pipeline as a LangGraph: cache → search → ingest → coverage loop → report")
+    p.add_argument("company")
+    p.add_argument("--track", choices=TRACKS)
+    p.add_argument("--since", type=int)
+    p.add_argument("--limit", type=int, default=10, help="max new pages per search round")
+    p.add_argument("--refresh", action="store_true", help="search even if cached data is sufficient")
+    p.add_argument("--quiet", action="store_true", help="show the graph trace only, not the full report")
+
+    sub.add_parser("graph", help="print the pipeline graph as a Mermaid diagram")
+
     p = sub.add_parser("topics", help="tag vocabulary with usage counts")
     p.add_argument("--discovered", action="store_true", help="only tags the system added")
     p.add_argument("--merge", nargs=2, metavar=("OLD", "INTO"), help="fold tag OLD into tag INTO")
@@ -236,6 +229,10 @@ def run(args: argparse.Namespace) -> None:
         cmd_report(args.company, args.track, args.since)
     elif args.cmd == "ask":
         cmd_ask(args.company, args.query, args.k, args.track, args.since)
+    elif args.cmd == "run":
+        cmd_run(args.company, args.track, args.since, args.limit, args.refresh, args.quiet)
+    elif args.cmd == "graph":
+        cmd_graph()
     elif args.cmd == "topics":
         cmd_topics(args.discovered, args.merge, args.delete)
 
