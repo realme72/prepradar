@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/components/categorytabs.tsx","./src/components/filters.tsx","./src/components/questioncard.tsx","./src/hooks/useapi.ts","./vite.config.ts"],"version":"5.8.3"}

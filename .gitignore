@@ -8,3 +8,4 @@ data/raw/
 reports/
 node_modules/
 web/dist/
+*.tsbuildinfo
