@@ -53,3 +53,16 @@ def test_find_urls_filters_and_dedupes(keys, monkeypatch):
     monkeypatch.setattr(search.httpx, "request", request)
     urls = [r.url for r in search.find_experience_urls("zemoso")]
     assert urls == ["https://www.geeksforgeeks.org/zemoso-interview-experience/"]
+
+
+def test_drops_people_directories_and_non_interview_pages(keys, monkeypatch):
+    results = [
+        {"url": "https://rocketreach.co/someone-email_1", "title": "Someone | Zemoso interview", "content": ""},
+        {"url": "https://leadiq.com/c/zemoso-technologies/1", "title": "Zemoso Company Overview", "content": ""},
+        {"url": "https://www.mapquest.com/us/zemoso-technologies", "title": "Zemoso Technologies Inc", "content": ""},
+        {"url": "https://learncloud.medium.com/zemoso-devops-interview-questions", "title": "Zemoso DevOps", "content": ""},
+    ]
+    request, _ = fake_request({"api.tavily.com": (200, {"results": results})})
+    monkeypatch.setattr(search.httpx, "request", request)
+    urls = [r.url for r in search.find_experience_urls("zemoso")]
+    assert urls == ["https://learncloud.medium.com/zemoso-devops-interview-questions"]

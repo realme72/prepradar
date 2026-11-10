@@ -10,9 +10,13 @@ CREATE TABLE IF NOT EXISTS sources (
     site        TEXT,
     title       TEXT,
     posted_year INT,
-    status      TEXT NOT NULL,      -- extracted | not_firsthand | blocked
+    status      TEXT NOT NULL,      -- extracted | not_firsthand | duplicate
     fetched_at  TIMESTAMPTZ DEFAULT now()
 );
+-- Same post under another URL (e.g. GFG's ?p=743995 vs its slug URL) must not
+-- be extracted twice, or every question in it gets times_reported +1.
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS content_hash TEXT;
+CREATE INDEX IF NOT EXISTS sources_hash_idx ON sources (content_hash);
 
 -- Tag vocabulary. Seed tags come from models.SEED_TOPICS; the extractor can
 -- propose new ones (origin='discovered'). The embedding lets us map a proposed

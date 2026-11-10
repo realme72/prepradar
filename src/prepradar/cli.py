@@ -6,7 +6,7 @@
     prepradar ingest zemoso --urls data/seed_urls/zemoso.txt
     prepradar report zemoso [--track Backend] [--since 2023]
     prepradar ask zemoso "caching and performance" [--track Backend] [--since 2023] [-k 10]
-    prepradar topics [--discovered]
+    prepradar topics [--discovered] [--merge OLD INTO] [--delete TAG]
 """
 import argparse
 from collections import defaultdict
@@ -87,30 +87,41 @@ def cmd_ingest(company: str, urls_file: str | None, limit: int) -> None:
             if page is None:
                 print(f"  blocked/empty, will retry next run  {url}")
                 continue
+            posted_year = int(page.published[:4]) if page.published else None
+            same = db.find_same_post(conn, company, page.text, page.title)
+            if same:
+                db.add_source(conn, url, company, "duplicate", page.site, page.title, posted_year, page.text)
+                conn.commit()
+                print(f"  same post as {same}, skipped  {url}")
+                continue
             processed += 1
             firsthand, qs = extract(page, company, db.vocabulary(conn))
-            posted_year = int(page.published[:4]) if page.published else None
             status = "extracted" if firsthand else "not_firsthand"
-            source_id = db.add_source(conn, url, company, status, page.site, page.title, posted_year)
+            source_id = db.add_source(conn, url, company, status, page.site, page.title, posted_year, page.text)
             if not firsthand:
                 conn.commit()
                 print(f"  skipped: not a firsthand candidate experience  {url}")
                 continue
 
             vecs = embed([q.text for q in qs]) if qs else []
-            dups, new_tags = 0, []
+            dups, new_tags, mapped = 0, [], {}
             for q, vec in zip(qs, vecs):
                 qid, dup = db.add_question(conn, q, source_id, vec)
                 dups += dup
                 for tag in q.topics:
-                    tid, name, created = db.resolve_topic(conn, tag, q.category, match_tag)
+                    resolved = db.resolve_topic(conn, tag, q.category, match_tag)
+                    if resolved is None:
+                        continue
+                    tid, name, created = resolved
                     db.tag_question(conn, qid, tid)
                     if created:
                         new_tags.append(f"{name} ({q.category})")
                     elif name != tag:
-                        print(f"      tag '{tag}' → existing '{name}'")
+                        mapped[tag] = name
             conn.commit()
             print(f"  {len(qs):3d} questions, {dups} duplicates  [{page.site}]  {url}")
+            if mapped:
+                print("      tags mapped: " + ", ".join(f"{a} → {b}" for a, b in mapped.items()))
             for t in new_tags:
                 print(f"      🆕 new tag: {t}")
 
@@ -152,10 +163,17 @@ def cmd_ask(company: str, query: str, k: int, track: str | None, since: int | No
         print_question(q, prefix=f"  {q['score']:.2f}  [{q['category']}] ")
 
 
-def cmd_topics(discovered_only: bool) -> None:
+def cmd_topics(discovered_only: bool, merge: list[str] | None, delete: str | None) -> None:
     from prepradar.store import db
 
     with db.connect() as conn:
+        if merge:
+            print(f"merged '{merge[0]}' into '{merge[1]}' ({db.merge_topic(conn, *merge)} questions moved)")
+            return
+        if delete:
+            db.delete_topic(conn, delete)
+            print(f"deleted tag '{delete}'")
+            return
         rows = conn.execute(
             """SELECT t.name, t.category, t.origin, count(qt.question_id) AS n
                FROM topics t LEFT JOIN question_topics qt ON qt.topic_id = t.id
@@ -197,6 +215,8 @@ def main() -> None:
 
     p = sub.add_parser("topics", help="tag vocabulary with usage counts")
     p.add_argument("--discovered", action="store_true", help="only tags the system added")
+    p.add_argument("--merge", nargs=2, metavar=("OLD", "INTO"), help="fold tag OLD into tag INTO")
+    p.add_argument("--delete", metavar="TAG", help="remove a tag from the vocabulary and all questions")
 
     args = parser.parse_args()
     try:
@@ -217,7 +237,7 @@ def run(args: argparse.Namespace) -> None:
     elif args.cmd == "ask":
         cmd_ask(args.company, args.query, args.k, args.track, args.since)
     elif args.cmd == "topics":
-        cmd_topics(args.discovered)
+        cmd_topics(args.discovered, args.merge, args.delete)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,11 @@
 import os
 from functools import lru_cache
 
+# keep CLI output readable: no model-download progress bars or info logs
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TQDM_DISABLE", "1")
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
 

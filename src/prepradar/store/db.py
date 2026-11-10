@@ -3,6 +3,7 @@
 pgvector's `<=>` operator is cosine DISTANCE (0 = identical), so similarity
 is `1 - (a <=> b)`.
 """
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,7 @@ from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
 from prepradar import config
-from prepradar.models import SEED_TOPICS, ExtractedQuestion
+from prepradar.models import SEED_TOPICS, Category, ExtractedQuestion
 from prepradar.store.embeddings import embed
 
 SCHEMA = Path(__file__).resolve().parents[3] / "db" / "schema.sql"
@@ -53,11 +54,29 @@ def seen_urls(conn: psycopg.Connection) -> dict[str, str]:
     return {r["url"]: r["status"] for r in conn.execute("SELECT url, status FROM sources")}
 
 
-def add_source(conn, url: str, company: str, status: str, site=None, title=None, posted_year=None) -> int:
+def content_hash(text: str) -> str:
+    # whitespace/case-insensitive, so the same post served by two URLs matches
+    return hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()
+
+
+def find_same_post(conn, company: str, text: str, title: str | None) -> str | None:
+    """URL of an already-stored source with the same content (or, for rows
+    stored before hashing, the same title). None if this post is new."""
+    row = conn.execute(
+        """SELECT url FROM sources WHERE company = %s
+           AND (content_hash = %s OR (%s::text IS NOT NULL AND lower(title) = lower(%s)))
+           LIMIT 1""",
+        (company, content_hash(text), title, title),
+    ).fetchone()
+    return row["url"] if row else None
+
+
+def add_source(conn, url: str, company: str, status: str, site=None, title=None, posted_year=None,
+               text: str | None = None) -> int:
     return conn.execute(
-        """INSERT INTO sources (url, company, site, title, posted_year, status)
-           VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
-        (url, company, site, title, posted_year, status),
+        """INSERT INTO sources (url, company, site, title, posted_year, status, content_hash)
+           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+        (url, company, site, title, posted_year, status, content_hash(text) if text else None),
     ).fetchone()["id"]
 
 
@@ -67,12 +86,21 @@ def vocabulary(conn: psycopg.Connection) -> dict[str, str]:
     return {r["name"]: r["category"] for r in conn.execute("SELECT name, category FROM topics ORDER BY name")}
 
 
-def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool]:
-    """Map a proposed tag to a topic id. Returns (id, canonical name, created_new).
+# Tags that only restate a category ("System Design" on an HLD question) add nothing.
+REDUNDANT_TAGS = {c.lower() for c in Category.__args__} | {
+    "system design", "coding", "algorithms", "data structures", "programming", "dsa", "devops", "cloud computing",
+}
+
+
+def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool] | None:
+    """Map a proposed tag to a topic id. Returns (id, canonical name, created_new),
+    or None for a tag that merely restates a category.
 
     judge(proposed, candidate_names) -> matching name or None; called only for
     tags whose nearest neighbours are close but not near-identical.
     """
+    if name.lower() in REDUNDANT_TAGS:
+        return None
     row = conn.execute("SELECT id, name FROM topics WHERE lower(name) = lower(%s)", (name,)).fetchone()
     if row:
         return row["id"], row["name"], False
@@ -127,6 +155,29 @@ def add_question(conn, q: ExtractedQuestion, source_id: int, vec: np.ndarray) ->
         (qid, source_id, q.text),
     )
     return qid, dup
+
+
+def merge_topic(conn, old: str, into: str) -> int:
+    """Move every question tagged `old` onto `into`, then delete `old`. Returns questions moved."""
+    src = conn.execute("SELECT id FROM topics WHERE lower(name) = lower(%s)", (old,)).fetchone()
+    dst = conn.execute("SELECT id FROM topics WHERE lower(name) = lower(%s)", (into,)).fetchone()
+    if not src or not dst:
+        raise RuntimeError(f"unknown tag: {old if not src else into}")
+    moved = conn.execute(
+        """INSERT INTO question_topics (question_id, topic_id)
+           SELECT question_id, %s FROM question_topics WHERE topic_id = %s
+           ON CONFLICT DO NOTHING""",
+        (dst["id"], src["id"]),
+    ).rowcount
+    conn.execute("DELETE FROM topics WHERE id = %s", (src["id"],))  # cascades its question_topics rows
+    conn.commit()
+    return moved
+
+
+def delete_topic(conn, name: str) -> None:
+    if not conn.execute("DELETE FROM topics WHERE lower(name) = lower(%s)", (name,)).rowcount:
+        raise RuntimeError(f"unknown tag: {name}")
+    conn.commit()
 
 
 def tag_question(conn, question_id: int, topic_id: int) -> None:

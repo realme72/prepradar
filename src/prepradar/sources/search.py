@@ -115,6 +115,10 @@ QUERY_TEMPLATES = [
 # Pages that are never candidate write-ups: job listings, the company's own site, social posts.
 SKIP_URL_PARTS = ("/jobs", "/job-listings", "/careers", "linkedin.com", "youtube.com", "instagram.com",
                   "facebook.com", "/salaries", "/reviews/")
+# People-data and company-directory sites. Besides being useless, some list
+# individuals' emails and phone numbers, which we must never collect.
+BLOCKED_SITES = ("rocketreach.co", "leadiq.com", "zoominfo.com", "apollo.io", "signalhire.com",
+                 "contactout.com", "crunchbase.com", "mapquest.com", "tavily.com/knowledge", "tracxn.com")
 
 
 def find_experience_urls(company: str, per_query: int = 8) -> list[SearchResult]:
@@ -125,9 +129,11 @@ def find_experience_urls(company: str, per_query: int = 8) -> list[SearchResult]
         for r in results:
             url = r.url.split("#")[0]
             text = f"{r.title} {r.snippet} {url}".lower()
-            if url in seen or any(p in url.lower() for p in SKIP_URL_PARTS):
+            if url in seen or any(p in url.lower() for p in SKIP_URL_PARTS + BLOCKED_SITES):
                 continue
             if company.lower() not in text or company.lower() + "." in url.lower():
                 continue  # not about the company, or the company's own website
+            if "interview" not in text:
+                continue  # company profile, directory or news page
             seen[url] = r
     return list(seen.values())
