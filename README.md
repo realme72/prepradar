@@ -40,6 +40,11 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run prepradar ask zemoso "caching and performance"
     uv run prepradar topics --discovered
 
+## Web UI (local)
+
+    uv run uvicorn prepradar.api:app --port 8010     # API
+    cd web && npm install && npm run dev             # http://localhost:5173
+
 ## Status: in progress
 
 - [x] Project scaffold, draft schema, decisions log

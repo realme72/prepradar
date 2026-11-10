@@ -1,0 +1,62 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #6b6b66;
+  --border: #e3e2dd;
+  --accent: #2f5bd3;
+  --accent-soft: #e8eefc;
+  --error: #b3261e;
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --surface: #1f1f1d;
+    --text: #ecebe6;
+    --muted: #9b9a93;
+    --border: #33332f;
+    --accent: #8aa8ff;
+    --accent-soft: #232b40;
+    --error: #ff8a80;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+
+.page { max-width: 880px; margin: 0 auto; padding: 32px 16px 64px; }
+.header h1 { margin: 0 0 4px; font-size: 1.6rem; }
+.muted { color: var(--muted); }
+.error { color: var(--error); }
+.empty { color: var(--muted); padding: 48px 0; text-align: center; }
+
+.filters { display: flex; gap: 16px; flex-wrap: wrap; margin: 24px 0 16px; }
+.filters label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
+.filters select {
+  font: inherit; font-size: 0.95rem; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-width: 200px;
+}
+
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.tab {
+  font: inherit; font-size: 0.85rem; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+}
+.tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tab .count { opacity: 0.7; margin-left: 4px; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.card-text { margin: 0 0 8px; line-height: 1.45; }
+.card-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 0.8rem; }
+.badge { background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 2px 8px; }
+.badge.strong { background: var(--accent); color: #fff; }
+.card-sources { display: flex; gap: 12px; margin-top: 8px; font-size: 0.8rem; }
+.card-sources a { color: var(--muted); }
+
+.vague { margin-top: 24px; font-size: 0.9rem; }
+.vague ul { color: var(--muted); }
+.link { font: inherit; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }

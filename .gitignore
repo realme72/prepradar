@@ -6,3 +6,5 @@ __pycache__/
 data/cache/
 data/raw/
 reports/
+node_modules/
+web/dist/

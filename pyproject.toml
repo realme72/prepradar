@@ -6,6 +6,7 @@ readme = "README.md"
 # torch / sentence-transformers wheels lag new Python releases; stay on 3.12
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    "fastapi>=0.162.3",
     "httpx>=0.28.1",
     "langgraph>=1.2.20",
     "openai>=3.46.0",
@@ -15,6 +16,7 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "sentence-transformers>=6.2.0",
     "trafilatura>=2.3.1",
+    "uvicorn[standard]>=0.54.0",
 ]  # added once stack decisions are settled (docs/decisions.md)
 
 [project.scripts]
@@ -26,5 +28,6 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=9.2.0",
 ]
