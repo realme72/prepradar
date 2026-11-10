@@ -89,6 +89,7 @@ def vocabulary(conn: psycopg.Connection) -> dict[str, str]:
 # Tags that only restate a category ("System Design" on an HLD question) add nothing.
 REDUNDANT_TAGS = {c.lower() for c in Category.__args__} | {
     "system design", "coding", "algorithms", "data structures", "programming", "dsa", "devops", "cloud computing",
+    "problem solving",
 }
 
 

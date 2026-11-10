@@ -20,7 +20,7 @@ MAX_PER_CATEGORY = 25  # keeps the prompt bounded for companies with lots of dat
 
 
 class Section(BaseModel):
-    category: str
+    category: Category  # exact category names, so sections sort and match
     summary: str = Field(description="2-4 sentences on what this company asks in this area, citing [Q#]/[S#]")
     must_prepare: list[str] = Field(description="Q ids of the questions most worth practising, most important first")
 

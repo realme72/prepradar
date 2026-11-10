@@ -20,3 +20,12 @@
 ## Revisit before public deployment
 - Glassdoor/AmbitionBox are auto-fetched during the spike (low volume, personal use). Their ToS forbid scraping: switch to paste-an-experience before any public launch.
 - Naukri Code360 (JS bot check) and Dataford sub-pages (429) are blocked; handle later.
+
+## Known gaps (to do after the UI)
+- Near-duplicate questions below the 0.88 threshold ("What are the SOLID principles?" vs
+  "What are design patterns and SOLID principles?"): shortlist + LLM judge, as for tags.
+- Tag sprawl on bigger companies (28 new tags for Razorpay): tags naming the specific design
+  problem ("Wallet System") instead of a concept. Idea: provisional tags that only become
+  visible once used by 2+ sources.
+- Firsthand check too lenient: SEO prep blogs (usegreenroom.app) pass as candidate reports.
+- No Data category: data-analyst / data-engineering questions land in Other.
