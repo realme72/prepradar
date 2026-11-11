@@ -72,6 +72,13 @@ def questions(company: str, function: str = "Engineering", position: str | None 
         return db.all_questions(conn, scope_of(company, function, position, track, since))
 
 
+@app.get("/api/companies/{company}/experiences")
+def experiences(company: str, function: str = "Engineering", position: str | None = None,
+                track: str | None = None, since: int | None = None):
+    with db.connect() as conn:
+        return db.experiences(conn, scope_of(company, function, position, track, since))
+
+
 @app.get("/api/companies/{company}/search")
 def search(company: str, q: str = Query(min_length=2), k: int = 10, function: str = "Engineering",
            position: str | None = None, track: str | None = None, since: int | None = None):

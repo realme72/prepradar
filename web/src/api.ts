@@ -32,6 +32,25 @@ export type Meta = {
 };
 
 // How many questions a company has per function and position (for the dropdowns).
+export type Round = { name: string; kind: string; summary: string };
+
+// One candidate's interview story (a review page gives one per reviewer).
+export type Experience = {
+  id: number;
+  role: string | null;
+  position: string;
+  interview_year: number | null;
+  posted_year: number | null;
+  outcome: "Offer" | "Rejected" | "Withdrew" | "Pending" | "Unknown";
+  difficulty: "Easy" | "Medium" | "Hard" | "Unknown";
+  duration: string | null;
+  summary: string;
+  rounds: Round[];
+  tips: string[];
+  url: string;
+  site: string;
+};
+
 export type ScopeCount = { function: string; position: string; questions: number };
 
 // The filters every question/search/guide request takes. Mirrors Scope in roles.py.

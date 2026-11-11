@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { Filters } from "./components/Filters";
+import { ExperiencesTab } from "./components/ExperiencesTab";
 import { GuideTab } from "./components/GuideTab";
 import { QuestionCard } from "./components/QuestionCard";
 import { RunPanel } from "./components/RunPanel";
@@ -9,7 +10,7 @@ import { SearchBox } from "./components/SearchBox";
 import { useApi } from "./hooks/useApi";
 import { useDebounce } from "./hooks/useDebounce";
 
-type View = "questions" | "guide";
+type View = "questions" | "experiences" | "guide";
 
 export default function App() {
   // State: values that, when changed, make React re-render this component.
@@ -47,6 +48,7 @@ export default function App() {
     company && searching ? apiUrl(`/companies/${company}/search`, { ...params, q: settledQuery, k: 15 }) : null,
   );
   const guideUrl = company ? apiUrl(`/companies/${company}/guide`, params) : null;
+  const storiesUrl = company ? apiUrl(`/companies/${company}/experiences`, params) : null;
 
   // Derived data: computed from state during render, never stored in state itself.
   // useMemo skips recomputing unless its inputs change.
@@ -114,12 +116,16 @@ export default function App() {
           <button className={view === "questions" ? "view active" : "view"} onClick={() => setView("questions")}>
             Questions
           </button>
+          <button className={view === "experiences" ? "view active" : "view"} onClick={() => setView("experiences")}>
+            Experiences
+          </button>
           <button className={view === "guide" ? "view active" : "view"} onClick={() => setView("guide")}>
             Prep guide
           </button>
         </nav>
       )}
 
+      {storiesUrl && view === "experiences" && <ExperiencesTab url={storiesUrl} version={version} />}
       {guideUrl && view === "guide" && <GuideTab key={guideUrl} url={guideUrl} version={version} />}
 
       {company && view === "questions" && (

@@ -90,6 +90,23 @@ Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
 """
 
 # Step 2: extraction, run only on pages step 1 accepted.
+ROLE_RULES = """function and position = who the interview was for. Pick the function, then the closest
+position on its ladder; Unknown if the write-up doesn't say or none fits:
+{ladders}
+Map titles onto the ladder: "SDE-I", "Software Engineer 1", new grad -> SDE 1; "SDE-II",
+"Software Engineer 2" -> SDE 2; "Senior Software Engineer", "SDE-III" -> SDE 3 / Senior.
+Only pick a rung the title or text states; "Software Engineer" or "Backend Engineer"
+with no level is Unknown. A data engineer is the Data function, and a business analyst
+or BI engineer is Data, Business / BI Analyst.
+
+track = engineering specialty only (Backend, Frontend, Fullstack, ML/AI, Mobile, QA,
+DevOps); an AI/ML engineer is ML/AI. Use General if unknown or not an engineering role.
+
+interview_year = the year the interview took place, only if the title or text states or
+clearly implies it (e.g. "Off-Campus 2021", "interviewed in May 2024"). Otherwise null.
+Do not use the page's publish date for this.
+"""
+
 SYSTEM = """You extract interview questions from a candidate's own report of interviewing at {company}.
 
 Extraction rules:
@@ -119,22 +136,36 @@ not the specific problem: "Rate Limiting", not "How To Rate Limit Login API";
 say what kind of question it is ("Algorithm Knowledge", "Technical Questions",
 "Interview Preparation", "Low-Level Design"); fewer tags is fine.
 
-function and position = who the interview was for. Pick the function, then the closest
-position on its ladder; Unknown if the write-up doesn't say or none fits:
-{ladders}
-Map titles onto the ladder: "SDE-I", "Software Engineer 1", new grad -> SDE 1; "SDE-II",
-"Software Engineer 2" -> SDE 2; "Senior Software Engineer", "SDE-III" -> SDE 3 / Senior.
-Only pick a rung the title or text states; "Software Engineer" or "Backend Engineer"
-with no level is Unknown. A data engineer is the Data function, and a business analyst
-or BI engineer is Data, Business / BI Analyst.
+""" + ROLE_RULES
 
-track = engineering specialty only (Backend, Frontend, Fullstack, ML/AI, Mobile, QA,
-DevOps); an AI/ML engineer is ML/AI. Use General if unknown or not an engineering role.
 
-interview_year = the year the interview took place, only if the title or text states or
-clearly implies it (e.g. "Off-Campus 2021", "interviewed in May 2024"). Otherwise null.
-Do not use the page's publish date for this.
-"""
+EXPERIENCES = """You summarise candidates' own reports of interviewing at {company}.
+
+Return one experience per candidate. A page written by one person is one experience. A page
+of reviews (Glassdoor, AmbitionBox) has one per reviewer who describes their process; skip
+reviewers who only give a rating or a one-line opinion.
+
+For each experience:
+- summary: one sentence, e.g. "SDE 2 candidate, 4 rounds over 3 weeks, got the offer."
+- rounds: every round the candidate describes, in the order they happened. name = what they
+  called it; kind = OA, Technical, Managerial, HR, or Unknown; summary = 1-3 sentences on what
+  was asked or done and how it went. Name the actual problems when the candidate does ("Two
+  DSA problems: LRU cache and merge k sorted lists"). Never invent rounds or details.
+- outcome: Offer, Rejected, Withdrew, Pending (still waiting when they wrote it), or Unknown
+  if they don't say.
+- difficulty: only from the candidate's own rating of the interview, copied word for word
+  into difficulty_quote ("Interview difficulty: Average", "it was very tough" -> Hard).
+  A "medium" coding problem is not a rating of the interview. If they don't rate it,
+  difficulty_quote is null and difficulty is Unknown.
+- duration: how long the whole process took, only if stated.
+- tips: only advice the candidate explicitly gives other candidates ("Prepare X", "My advice
+  is..."), each with their exact words copied into quote. A description of what was asked
+  is not advice. Empty if they give none; never write advice of your own.
+- Never include people's names (candidates, interviewers, recruiters, post authors).
+- Ignore AI-written model answers, ads, navigation, salary info and site FAQs.
+
+""" + ROLE_RULES
+
 
 USER = """Company: {company}
 Source site: {site}

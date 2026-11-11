@@ -7,7 +7,9 @@ load_dotenv()
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/prepradar")
-MAX_PAGE_CHARS = 15_000  # trim very long pages to cap tokens per extraction call
+MAX_PAGE_CHARS = 15_000  # one question-extraction call reads this much of a page
+MAX_CHUNKS = 4           # longer pages are read in up to this many chunks (60k chars)
+EXPERIENCE_CHARS = 60_000  # the experience call reads a page in one go, so a story isn't split
 
 # cosine similarity at or above which two questions are the same question
 # (picked from real pairs: true rewrites scored 0.93+, "MongoDB vs MySQL schema" 0.87)

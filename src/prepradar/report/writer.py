@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 from prepradar import config
-from prepradar.extract.extractor import client
+from prepradar.extract.extractor import parse
 from prepradar.models import Category
 from prepradar.roles import Scope
 
@@ -145,7 +145,8 @@ def write_guide(scope: Scope, questions: list[dict]) -> Grounded:
     data = ("FACTS\n" + facts + "\n\nSOURCES\n" + "\n".join(source_lines)
             + "\n\nQUESTIONS\n" + "\n".join(lines))
 
-    guide: PrepGuide = client().responses.parse(
+    guide: PrepGuide = parse(
+        "guide",
         model=config.OPENAI_MODEL,
         instructions=instructions,
         input=f"REQUIRED SECTIONS: {', '.join(required)}\n\n{data}",
@@ -155,7 +156,8 @@ def write_guide(scope: Scope, questions: list[dict]) -> Grounded:
     guide.sections = [s for s in guide.sections if s.category in required]
     missing = [c for c in required if c not in {s.category for s in guide.sections}]
     if missing:  # one follow-up call for just the sections it skipped
-        extra: MissingSections = client().responses.parse(
+        extra: MissingSections = parse(
+            "guide",
             model=config.OPENAI_MODEL,
             instructions=instructions,
             input=f"REQUIRED SECTIONS: {', '.join(missing)}\n\n{data}",

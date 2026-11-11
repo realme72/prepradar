@@ -88,3 +88,11 @@
 - **"Build guide from current questions"**: `POST /api/companies/{c}/guide` writes a guide from stored data, with no web search. The Prep guide tab offers it when no guide exists for the filters.
 - **Track is disabled, not hidden, outside Engineering**, so the layout doesn't jump. The chosen track is kept in state and comes back when switching back to Engineering.
 - **discuss.boardinfinity.com is rejected by URL rule**: its posts are AI summaries, and the classifier passed one on a re-run.
+
+## Experiences (2026-11-11)
+
+- **Questions alone lost the story.** Each write-up's rounds in order, outcome, difficulty, duration and tips now go in an `experiences` table: one row per candidate, so a review page gives one per reviewer. It's a separate LLM call, so the question prompt is unchanged.
+- **Difficulty and tips must be quoted.** On the first try the model rated almost every interview "Medium" and wrote generic tips nobody gave (a prachub page with no advice got three). The model now copies the candidate's words, and `ground()` drops any difficulty or tip whose quote isn't on the page. This is the same idea as the guide's citation check.
+- **Long pages are read in chunks.** Question extraction used to stop at 15k characters; it now reads up to 4 overlapping 15k windows. The experience call reads up to 60k at once, so a story isn't split.
+- **Page text is still not stored**, because it would keep people's names. `prepradar experiences` re-fetches sources to backfill, and pages that can't be re-fetched are skipped.
+- **Token log.** Every OpenAI call goes through `parse()`, which writes the token counts to `llm_usage`. `prepradar usage` sums them per model and purpose. Cost in dollars is on the OpenAI dashboard.

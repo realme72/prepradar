@@ -332,6 +332,74 @@ def cmd_recheck(company: str | None) -> None:
     print(f"{len(rows)} sources rechecked: {dropped} dropped, {unreadable} couldn't be fetched (kept)")
 
 
+def cmd_experiences(company: str | None, redo: bool) -> None:
+    """Backfill candidate stories for sources ingested before experiences existed. Page
+    text isn't stored (it would keep people's names), so each page is fetched again;
+    pages longer than the old 15k-character cut-off also get their remaining questions."""
+    from prepradar import config
+    from prepradar.extract.extractor import extract_experiences, extract_questions
+    from prepradar.pipeline import store_questions
+    from prepradar.sources.fetch import load_page
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT s.id, s.url, s.company, s.title, s.posted_year FROM sources s
+               WHERE s.status = 'extracted' AND (%s::text IS NULL OR s.company = %s)
+                 AND (%s OR NOT EXISTS (SELECT 1 FROM experiences e WHERE e.source_id = s.id))
+               ORDER BY s.company, s.id""",
+            (company, company, redo),
+        ).fetchall()
+        stories = extra = unreadable = 0
+        for r in rows:
+            page = load_page(r["url"], r["title"], None)
+            if page is None:
+                unreadable += 1
+                print(f"  couldn't fetch, skipped  {r['url']}")
+                continue
+            exps = extract_experiences(page, r["company"])
+            db.add_experiences(conn, r["id"], r["company"], r["posted_year"], exps)
+            note = ""
+            if len(page.text) > config.MAX_PAGE_CHARS:
+                qs = extract_questions(page, r["company"], db.vocabulary(conn), first_chunk=1)
+                dups, _, _ = store_questions(conn, qs, r["id"])
+                extra += len(qs) - dups
+                note = f", {len(qs) - dups} new questions past the old cut-off"
+            conn.commit()
+            stories += len(exps)
+            print(f"  {len(exps):2d} experiences{note}  {r['url']}")
+    print(f"{len(rows)} sources: {stories} experiences, {extra} more questions, "
+          f"{unreadable} couldn't be fetched")
+
+
+def cmd_usage(days: int) -> None:
+    """Tokens per model and purpose, from the llm_usage log. Calls made before the log
+    existed aren't in it; the OpenAI dashboard has the full history and the cost."""
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT model, purpose, count(*) AS calls, sum(input_tokens) AS input,
+                      sum(cached_tokens) AS cached, sum(output_tokens) AS output,
+                      sum(reasoning_tokens) AS reasoning
+               FROM llm_usage WHERE at > now() - make_interval(days => %s)
+               GROUP BY 1, 2 ORDER BY 1, sum(input_tokens) DESC""",
+            (days,),
+        ).fetchall()
+    if not rows:
+        print(f"no LLM calls logged in the last {days} days")
+        return
+    print(f"OpenAI tokens, last {days} days (output includes reasoning)\n")
+    print(f"{'model':<16} {'purpose':<14} {'calls':>6} {'input':>11} {'cached':>9} {'output':>9} {'reasoning':>10}")
+    for r in rows:
+        print(f"{r['model']:<16} {r['purpose']:<14} {r['calls']:>6} {r['input']:>11,} {r['cached']:>9,} "
+              f"{r['output']:>9,} {r['reasoning']:>10,}")
+    print(f"\n{'total':<31} {sum(r['calls'] for r in rows):>6} {sum(r['input'] for r in rows):>11,} "
+          f"{sum(r['cached'] for r in rows):>9,} {sum(r['output'] for r in rows):>9,} "
+          f"{sum(r['reasoning'] for r in rows):>10,}")
+    print("\nCost in dollars: https://platform.openai.com/usage")
+
+
 def cmd_forget(urls: list[str]) -> None:
     from prepradar.store import db
 
@@ -410,6 +478,13 @@ def main() -> None:
     p = sub.add_parser("forget", help="drop a source wrongly accepted as firsthand, and its questions")
     p.add_argument("urls", nargs="+")
 
+    p = sub.add_parser("experiences", help="extract candidate stories (rounds, outcome, tips) for stored sources")
+    p.add_argument("--company")
+    p.add_argument("--redo", action="store_true", help="re-extract sources that already have stories")
+
+    p = sub.add_parser("usage", help="OpenAI tokens used, per model and purpose")
+    p.add_argument("--days", type=int, default=30)
+
     args = parser.parse_args()
     try:
         run(args)
@@ -446,6 +521,10 @@ def run(args: argparse.Namespace) -> None:
         cmd_recheck(args.company)
     elif args.cmd == "forget":
         cmd_forget(args.urls)
+    elif args.cmd == "experiences":
+        cmd_experiences(args.company, args.redo)
+    elif args.cmd == "usage":
+        cmd_usage(args.days)
 
 
 if __name__ == "__main__":

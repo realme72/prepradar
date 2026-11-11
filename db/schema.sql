@@ -68,3 +68,38 @@ CREATE INDEX IF NOT EXISTS questions_embedding_idx ON questions USING hnsw (embe
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS function TEXT NOT NULL DEFAULT 'Engineering';
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS position TEXT NOT NULL DEFAULT 'Unknown';
 CREATE INDEX IF NOT EXISTS questions_scope_idx ON questions (company, function, position);
+
+-- One candidate's interview story: the rounds in order, the outcome and their advice.
+-- A review page (Glassdoor, AmbitionBox) gives one row per reviewer. Questions stay in
+-- their own table; this is the narrative around them.
+CREATE TABLE IF NOT EXISTS experiences (
+    id              BIGSERIAL PRIMARY KEY,
+    source_id       BIGINT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    company         TEXT NOT NULL,
+    function        TEXT NOT NULL,
+    position        TEXT NOT NULL,
+    track           TEXT NOT NULL,
+    role            TEXT,
+    interview_year  INT,
+    posted_year     INT,
+    outcome         TEXT NOT NULL,      -- Offer | Rejected | Withdrew | Pending | Unknown
+    difficulty      TEXT NOT NULL,      -- Easy | Medium | Hard | Unknown
+    duration        TEXT,
+    summary         TEXT NOT NULL,
+    rounds          JSONB NOT NULL,     -- [{name, kind, summary}] in the order they happened
+    tips            TEXT[] NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS experiences_scope_idx ON experiences (company, function, position);
+
+-- Tokens per OpenAI call, so spend can be checked without the dashboard (`prepradar usage`).
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                BIGSERIAL PRIMARY KEY,
+    at                TIMESTAMPTZ DEFAULT now(),
+    model             TEXT NOT NULL,
+    purpose           TEXT NOT NULL,    -- classify, extract, experiences, guide, ...
+    input_tokens      INT NOT NULL,
+    cached_tokens     INT NOT NULL DEFAULT 0,
+    output_tokens     INT NOT NULL,
+    reasoning_tokens  INT NOT NULL DEFAULT 0
+);

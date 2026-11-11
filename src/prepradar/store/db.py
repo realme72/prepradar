@@ -10,9 +10,10 @@ import numpy as np
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 
 from prepradar import config
-from prepradar.models import GENERIC_TAG, SEED_TOPICS, Category, ExtractedQuestion
+from prepradar.models import GENERIC_TAG, SEED_TOPICS, Category, ExperienceDraft, ExtractedQuestion
 from prepradar.roles import RELATED_TRACKS, Scope
 from prepradar.store.embeddings import embed
 
@@ -82,6 +83,7 @@ def forget_source(conn, url: str) -> int:
     if not row:
         raise RuntimeError(f"unknown source: {url}")
     conn.execute("DELETE FROM question_sources WHERE source_id = %s", (row["id"],))
+    conn.execute("DELETE FROM experiences WHERE source_id = %s", (row["id"],))
     deleted = conn.execute(
         """DELETE FROM questions q
            WHERE NOT EXISTS (SELECT 1 FROM question_sources qs WHERE qs.question_id = q.id)"""
@@ -326,6 +328,36 @@ def scope_counts(conn, company: str, track: str | None = None, since: int | None
     return conn.execute(
         f"""SELECT function, position, count(*) AS questions FROM questions
             WHERE {" AND ".join(where)} GROUP BY 1, 2 ORDER BY 1, 2""",
+        params,
+    ).fetchall()
+
+
+# ── experiences ──────────────────────────────────────────────────────────────
+
+def add_experiences(conn, source_id: int, company: str, posted_year: int | None,
+                    exps: list[ExperienceDraft]) -> None:
+    """Replace the stored stories for a source (re-extracting a page must not double them)."""
+    conn.execute("DELETE FROM experiences WHERE source_id = %s", (source_id,))
+    for e in exps:
+        conn.execute(
+            """INSERT INTO experiences (source_id, company, function, position, track, role, interview_year,
+                                        posted_year, outcome, difficulty, duration, summary, rounds, tips)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (source_id, company, e.function, e.position, e.track, e.role, e.interview_year, posted_year,
+             e.outcome, e.difficulty, e.duration, e.summary, Json([r.model_dump() for r in e.rounds]),
+             [t.advice for t in e.tips]),
+        )
+
+
+def experiences(conn, scope: Scope) -> list[dict]:
+    """Stories under the same filters as questions (the columns share names), newest first."""
+    where, params = _filters(scope)
+    return conn.execute(
+        f"""SELECT q.id, q.role, q.function, q.position, q.track, q.interview_year, q.posted_year, q.outcome,
+                   q.difficulty, q.duration, q.summary, q.rounds, q.tips, s.url, s.site
+            FROM experiences q JOIN sources s ON s.id = q.source_id
+            WHERE {where}
+            ORDER BY coalesce(q.interview_year, q.posted_year) DESC NULLS LAST, q.id DESC""",
         params,
     ).fetchall()
 

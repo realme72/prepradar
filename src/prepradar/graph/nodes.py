@@ -98,7 +98,7 @@ def ingest_pages(state: GraphState) -> dict:
         stats = ingest(conn, state["scope"].company, state["candidates"], state.get("limit", 15))
     return {"last_new_questions": stats.new_questions,
             "log": [f"ingest: {stats.pages} new write-ups ({stats.rejected} guides/question banks rejected), "
-                    f"{stats.new_questions} new questions"
+                    f"{stats.new_questions} new questions, {stats.experiences} experiences"
                     + (f", new tags: {', '.join(stats.new_tags)}" if stats.new_tags else "")]}
 
 

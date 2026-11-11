@@ -48,6 +48,23 @@ SEED_TOPICS: dict[str, str] = {
 }
 
 
+def _blank_to_none(v):
+    # the model sometimes emits the string "null" instead of a JSON null
+    return None if isinstance(v, str) and v.strip().lower() in ("", "null", "none", "n/a") else v
+
+
+def _place_role(m):
+    """Engineering levels come from the title by rule (see roles.ENGINEERING_LEVELS);
+    a rung from another ladder, or an invented one, becomes Unknown."""
+    if m.function == "Engineering" and m.role:
+        m.position = engineering_level(m.role)
+    if m.position not in FUNCTIONS[m.function].positions:
+        m.position = UNKNOWN
+    if m.function != "Engineering":
+        m.track = "General"
+    return m
+
+
 class QuestionDraft(BaseModel):
     text: str = Field(description="The question as asked, rewritten as one clear self-contained question")
     specific: bool = Field(
@@ -67,8 +84,7 @@ class QuestionDraft(BaseModel):
     @field_validator("role", mode="before")
     @classmethod
     def blank_role_to_none(cls, v):
-        # the model sometimes emits the string "null" instead of a JSON null
-        return None if isinstance(v, str) and v.strip().lower() in ("", "null", "none", "n/a") else v
+        return _blank_to_none(v)
 
     @field_validator("topics")
     @classmethod
@@ -77,15 +93,7 @@ class QuestionDraft(BaseModel):
 
     @model_validator(mode="after")
     def position_on_ladder(self):
-        # engineering levels come from the title by rule (see roles.ENGINEERING_LEVELS)
-        if self.function == "Engineering" and self.role:
-            self.position = engineering_level(self.role)
-        # the model may name a rung from another ladder, or invent one
-        if self.position not in FUNCTIONS[self.function].positions:
-            self.position = UNKNOWN
-        if self.function != "Engineering":
-            self.track = "General"
-        return self
+        return _place_role(self)
 
 
 # What kind of page this is. Asking for the evidence and a kind is more reliable
@@ -111,6 +119,51 @@ class PageCheck(BaseModel):
 
 class ExtractionResult(BaseModel):
     questions: list[QuestionDraft]
+
+
+Outcome = Literal["Offer", "Rejected", "Withdrew", "Pending", "Unknown"]
+Difficulty = Literal["Easy", "Medium", "Hard", "Unknown"]
+
+
+class RoundStory(BaseModel):
+    name: str = Field(description="What the candidate called the round, e.g. 'Online assessment', 'Bar raiser'")
+    kind: Round
+    summary: str = Field(description="1-3 sentences: what was asked or done, naming the actual problems, and how it went")
+
+
+class Tip(BaseModel):
+    quote: str = Field(description="The candidate's own words giving this advice, copied exactly from the page")
+    advice: str = Field(description="The advice as one short sentence")
+
+
+class ExperienceDraft(BaseModel):
+    summary: str = Field(description="One sentence: the role, how many rounds, and how it ended")
+    role: str | None = Field(description="Role title as written; null if not stated")
+    function: Function
+    position: str = Field(description="The rung on the function's ladder, or Unknown")
+    track: Track
+    interview_year: int | None = Field(description="Year of the interview, ONLY if stated; never the publish date")
+    rounds: list[RoundStory] = Field(description="Every round the candidate describes, in the order they happened")
+    outcome: Outcome
+    difficulty_quote: str | None = Field(
+        description="The candidate's exact words rating how hard the whole interview was, copied from the page; "
+                    "null if they don't rate it. A 'medium' coding problem is not a rating of the interview")
+    difficulty: Difficulty = Field(description="From difficulty_quote; Unknown when it is null")
+    duration: str | None = Field(description="How long the whole process took, if stated, e.g. '3 weeks'")
+    tips: list[Tip] = Field(description="Advice the candidate gives other candidates; empty if they give none")
+
+    @field_validator("role", "duration", "difficulty_quote", mode="before")
+    @classmethod
+    def blank_to_none(cls, v):
+        return _blank_to_none(v)
+
+    @model_validator(mode="after")
+    def position_on_ladder(self):
+        return _place_role(self)
+
+
+class ExperienceResult(BaseModel):
+    experiences: list[ExperienceDraft]
 
 
 class ExtractedQuestion(QuestionDraft):

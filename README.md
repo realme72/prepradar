@@ -46,6 +46,8 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run prepradar reposition                      # fill function/role on stored questions
     uv run prepradar recheck                         # re-run the firsthand check on stored sources
     uv run prepradar forget URL                      # remove a source wrongly accepted as firsthand
+    uv run prepradar experiences [--company X]       # backfill candidate stories (rounds, outcome, tips)
+    uv run prepradar usage [--days 30]               # OpenAI tokens used, per model and purpose
 
 ## Web UI (local)
 
