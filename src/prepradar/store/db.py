@@ -13,18 +13,12 @@ from psycopg.rows import dict_row
 
 from prepradar import config
 from prepradar.models import GENERIC_TAG, SEED_TOPICS, Category, ExtractedQuestion
+from prepradar.roles import RELATED_TRACKS, Scope
 from prepradar.store.embeddings import embed
 
 SCHEMA = Path(__file__).resolve().parents[3] / "db" / "schema.sql"
 
 # a Backend query should also surface Fullstack interviews, and vice versa
-RELATED_TRACKS = {
-    "Backend": ["Backend", "Fullstack", "General"],
-    "Frontend": ["Frontend", "Fullstack", "General"],
-    "Fullstack": ["Backend", "Frontend", "Fullstack", "General"],
-}
-
-
 def connect() -> psycopg.Connection:
     conn = psycopg.connect(config.DATABASE_URL, row_factory=dict_row)
     conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -180,11 +174,11 @@ def add_question(conn, q: ExtractedQuestion, source_id: int, vec: np.ndarray, ju
     dup = qid is not None
     if not dup:
         qid = conn.execute(
-            """INSERT INTO questions (company, text, specific, category, round, role, track,
-                                      interview_year, posted_year, embedding)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-            (q.company, q.text, q.specific, q.category, q.round, q.role, q.track,
-             q.interview_year, q.posted_year, vec),
+            """INSERT INTO questions (company, text, specific, category, round, role, function, position,
+                                      track, interview_year, posted_year, embedding)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (q.company, q.text, q.specific, q.category, q.round, q.role, q.function, q.position,
+             q.track, q.interview_year, q.posted_year, vec),
         ).fetchone()["id"]
     conn.execute(
         "INSERT INTO question_sources (question_id, source_id, original_text) VALUES (%s, %s, %s) "
@@ -284,7 +278,7 @@ TAG_SOURCES = """
 """
 
 QUESTION_VIEW = f"""
-    SELECT q.id, q.text, q.specific, q.category, q.round, q.track, q.role,
+    SELECT q.id, q.text, q.specific, q.category, q.round, q.function, q.position, q.track, q.role,
            q.interview_year, q.posted_year,
            (SELECT count(*) FROM question_sources s WHERE s.question_id = q.id) AS times_reported,
            (SELECT array_agg(t.name ORDER BY t.name) FROM question_topics qt
@@ -296,43 +290,54 @@ QUESTION_VIEW = f"""
 """
 
 
-def _filters(company: str, track: str | None, since: int | None) -> tuple[str, list]:
-    where, params = ["q.company = %s"], [company]
-    if track:
+def _filters(scope: Scope) -> tuple[str, list]:
+    where, params = ["q.company = %s", "q.function = %s"], [scope.company, scope.function]
+    if scope.position:
+        where.append("q.position = %s")
+        params.append(scope.position)
+    if scope.track:
         where.append("q.track = ANY(%s)")
-        params.append(RELATED_TRACKS.get(track, [track, "General"]))
-    if since:
+        params.append(RELATED_TRACKS.get(scope.track, [scope.track, "General"]))
+    if scope.since:
         where.append("coalesce(q.interview_year, q.posted_year) >= %s")
-        params.append(since)
+        params.append(scope.since)
     return " AND ".join(where), params
 
 
-def category_counts(conn, company: str, track: str | None = None, since: int | None = None) -> dict[str, int]:
+def category_counts(conn, scope: Scope) -> dict[str, int]:
     """Specific (non-vague) questions per category, under the same filters as retrieval."""
-    where, params = _filters(company, track, since)
+    where, params = _filters(scope)
     rows = conn.execute(
         f"SELECT q.category, count(*) AS n FROM questions q WHERE {where} AND q.specific GROUP BY 1", params
     ).fetchall()
     return {r["category"]: r["n"] for r in rows}
 
 
+def scope_counts(conn, company: str) -> list[dict]:
+    """Questions per (function, position) for one company: what the UI's dropdowns offer."""
+    return conn.execute(
+        """SELECT function, position, count(*) AS questions FROM questions
+           WHERE company = %s GROUP BY 1, 2 ORDER BY 1, 2""",
+        (company,),
+    ).fetchall()
+
+
 def last_fetched(conn, company: str):
     return conn.execute("SELECT max(fetched_at) AS t FROM sources WHERE company = %s", (company,)).fetchone()["t"]
 
 
-def all_questions(conn, company: str, track: str | None = None, since: int | None = None) -> list[dict]:
-    where, params = _filters(company, track, since)
+def all_questions(conn, scope: Scope) -> list[dict]:
+    where, params = _filters(scope)
     return conn.execute(f"{QUESTION_VIEW} FROM questions q WHERE {where}", params).fetchall()
 
 
-def search(conn, company: str, query_vec: np.ndarray, k: int,
-           track: str | None = None, since: int | None = None) -> list[dict]:
+def search(conn, scope: Scope, query_vec: np.ndarray, k: int) -> list[dict]:
     """Hybrid retrieval: SQL filters narrow the rows, vector distance ranks them.
 
     Vague questions are excluded: "solve two medium problems" matches the shape
     of almost any query and crowds out real questions.
     """
-    where, params = _filters(company, track, since)
+    where, params = _filters(scope)
     return conn.execute(
         f"""{QUESTION_VIEW}, 1 - (q.embedding <=> %s) AS score
             FROM questions q WHERE {where} AND q.specific

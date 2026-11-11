@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { apiUrl, type Company, type Meta, type Question } from "./api";
+import { apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { Filters } from "./components/Filters";
 import { GuideView } from "./components/GuideView";
@@ -15,7 +15,9 @@ export default function App() {
   // State: values that, when changed, make React re-render this component.
   // App owns them because several children need them ("lifting state up").
   const [company, setCompany] = useState<string | null>(null);
-  const [track, setTrack] = useState("Backend");
+  // One object for every filter that narrows the questions. Grouping them means a
+  // single setScope() call changes several at once (see Filters' pickFunction).
+  const [scope, setScope] = useState<Scope>({ function: "Engineering", position: "", track: "Backend", since: null });
   const [category, setCategory] = useState<string | null>(null);
   const [showVague, setShowVague] = useState(false);
   const [view, setView] = useState<View>("questions");
@@ -30,16 +32,18 @@ export default function App() {
 
   const meta = useApi<Meta>(apiUrl("/meta"));
   const companies = useApi<Company[]>(apiUrl("/companies"), version);
-  // The URL is derived from state, so picking a company/track re-runs the fetch.
+  const scopeCounts = useApi<ScopeCount[]>(company ? apiUrl(`/companies/${company}/scopes`) : null, version);
+  // The URLs are derived from state, so changing any filter re-runs the fetches.
+  const params = scopeParams(scope);
   const questions = useApi<Question[]>(
-    company ? apiUrl(`/companies/${company}/questions`, { track }) : null,
+    company ? apiUrl(`/companies/${company}/questions`, params) : null,
     version,
   );
   const results = useApi<Question[]>(
-    company && searching ? apiUrl(`/companies/${company}/search`, { q: settledQuery, track, k: 15 }) : null,
+    company && searching ? apiUrl(`/companies/${company}/search`, { ...params, q: settledQuery, k: 15 }) : null,
   );
   const guide = useApi<{ markdown: string }>(
-    company && view === "guide" ? apiUrl(`/companies/${company}/guide`, { track }) : null,
+    company && view === "guide" ? apiUrl(`/companies/${company}/guide`, params) : null,
     version,
   );
 
@@ -84,11 +88,13 @@ export default function App() {
       <Filters
         companies={companies.data ?? []}
         company={company}
-        track={track}
+        scope={scope}
+        ladders={meta.data?.functions ?? {}}
         tracks={meta.data?.tracks ?? []}
+        counts={scopeCounts.data ?? []}
         onCompany={pickCompany}
-        onTrack={(t) => {
-          setTrack(t);
+        onScope={(s) => {
+          setScope(s);
           setCategory(null);
         }}
       />
@@ -96,7 +102,7 @@ export default function App() {
       <details className="run-box">
         <summary>{company ? `Refresh ${company} or add a company` : "Add a company"}</summary>
         {/* key: a new company resets the panel's local state (log, typed name) */}
-        <RunPanel key={company ?? ""} initialCompany={company ?? ""} track={track} onFinished={runFinished} />
+        <RunPanel key={company ?? ""} initialCompany={company ?? ""} scope={scope} onFinished={runFinished} />
       </details>
 
       {!company && <p className="empty">Pick a company to see its questions.</p>}
@@ -125,6 +131,12 @@ export default function App() {
           <SearchBox value={query} onChange={setQuery} />
           {questions.loading && <p className="muted">Loading…</p>}
           {questions.error && <p className="error">{questions.error}</p>}
+          {questions.data?.length === 0 && (
+            <p className="empty">
+              No {scope.position || scope.function} questions for {company} yet. Fetch them with
+              “{company ? `Refresh ${company}` : "Add a company"}” above.
+            </p>
+          )}
 
           {searching ? (
             <section className="list">

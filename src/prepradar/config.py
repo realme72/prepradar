@@ -20,6 +20,9 @@ DEDUPE_JUDGE = float(os.getenv("DEDUPE_JUDGE", "0.80"))
 # can afford more care than extraction. For the duplicate judge, gpt-4o-mini flipped between merging "kth largest" with
 # "2nd largest" and missing "debounce function" = "what is debounce, implement it".
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gpt-5.4-mini")
+# With no reasoning the classifier flipped on borderline pages (an AI-written summary
+# read as candidate reviews 2 runs in 5); "low" was stable, "medium" no better.
+JUDGE_REASONING = {"effort": os.getenv("JUDGE_REASONING", "low")}
 # Short tag names embed poorly ("Java" vs "JavaScript" 0.83, "Prod Debugging" vs
 # "Production Troubleshooting" 0.73), so similarity alone can't decide tag merges:
 # >= AUTO: merge; between CANDIDATE and AUTO: ask the LLM; below CANDIDATE: new tag.

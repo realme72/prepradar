@@ -42,6 +42,9 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run prepradar topics --review                 # drop generic tags, merge synonyms
     uv run prepradar recategorise                    # re-sort stored questions after rule changes
     uv run prepradar dedupe                          # merge near-duplicate questions
+    uv run prepradar run amazon --function Product --position "Product Manager"
+    uv run prepradar reposition                      # fill function/role on stored questions
+    uv run prepradar recheck                         # re-run the firsthand check on stored sources
     uv run prepradar forget URL                      # remove a source wrongly accepted as firsthand
 
 ## Web UI (local)
@@ -63,5 +66,6 @@ for a new company with its progress streamed live.
 - [x] Grounded prep guide: facts computed in code, every claim cites Q#/S#, invalid citations removed
 - [x] FastAPI backend + React UI: question browser, semantic search, guide view, live run progress
 - [x] Stricter firsthand check, LLM-judged near-duplicates, provisional tags, Data category
+- [x] Roles beyond engineering: function → role ladder (SDE 1..Principal, APM..Director, SDR..Sales Manager), year filter
 
 See docs/decisions.md for decided and open questions.

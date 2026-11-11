@@ -49,7 +49,33 @@
   language and browser topics. `prepradar recategorise` re-sorted stored questions
   (Other: 39 -> 12) and tags follow their questions' category.
 
+## Roles beyond engineering
+- Every question has a function (Engineering, Product, Data, Design, Sales, Marketing,
+  Operations, People / HR) and a position on that function's ladder (SDE 1..Principal,
+  APM..Director of Product, SDR..Sales Manager). Managers are rungs, not a function, so
+  an engineering manager's system design and people questions stay under Engineering.
+  Track (Backend, Frontend...) is an engineering specialty only. All of it lives in
+  `roles.py`.
+- Engineering levels are read off the title by rule (`engineering_level`): LLMs either
+  invented "SDE 2" for a plain "Software Engineer" or dropped a stated "Staff". A title
+  with no level stays Unknown ("Level not stated" in the UI).
+- Searches are built from the scope (function, role) and include year-specific queries:
+  search engines rank recent posts first, so older write-ups need asking for by year.
+- `prepradar reposition` filled function/position on stored questions.
+
+## Firsthand check, round 3
+- Classification uses JUDGE_MODEL with low reasoning. gpt-4o-mini accepted guides that
+  say they're "based on candidates' experiences" (interviewquery), and with no reasoning
+  gpt-5.4-mini flipped on borderline pages; "low" was stable, "medium" no better.
+- Glassdoor and AmbitionBox interview-review URLs count as candidate reviews by rule:
+  their AI-written model answers fill the start of the page and made the classifier
+  flip-flop. Extraction already ignores model answers.
+- `prepradar recheck` re-runs the check on accepted sources: 13 of 73 dropped.
+
 ## Known gaps
+- An AI-written forum summary (boardinfinity) still occasionally passes as reviews.
+- Non-engineering data is thin until runs are made for those functions (Amazon Product:
+  40 questions after the recheck).
 - The tag judge merges narrower tags into broader ones (DENSE_RANK -> SQL, Cycle
   Detection -> Graphs) despite its instructions. Fine for sprawl; loses some detail.
 - A few vague tags that 2+ sources used still show ("Operational Concerns", "Reflection").

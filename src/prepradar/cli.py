@@ -7,22 +7,24 @@
     prepradar report zemoso [--track Backend] [--since 2023]
     prepradar ask zemoso "caching and performance" [--track Backend] [--since 2023] [-k 10]
     prepradar run zemoso --track Backend                   # the LangGraph pipeline end to end
+    prepradar run amazon --function Product --position "Product Manager"
     prepradar guide zemoso --track Backend                 # grounded prep guide from stored data only
     prepradar graph                                        # Mermaid diagram of the graph
     prepradar topics [--discovered] [--merge OLD INTO] [--delete TAG]
     prepradar topics --review                              # drop generic tags, merge synonyms (LLM)
     prepradar recategorise [--company X]                   # re-sort questions under current categories
+    prepradar reposition                                   # fill function/position from role titles (LLM)
     prepradar dedupe [--company X]                         # merge near-duplicate questions (LLM)
+    prepradar recheck [--company X]                        # re-run the firsthand check, drop failures
     prepradar forget URL [URL ...]                         # drop a source wrongly accepted, and its questions
 """
 import argparse
 from collections import defaultdict
 from pathlib import Path
 
-from prepradar.models import Category, Track
+from prepradar.roles import CATEGORIES, FUNCTIONS, TRACKS, Scope
 
-CATEGORY_ORDER = list(Category.__args__)
-TRACKS = [t for t in Track.__args__ if t != "General"]
+CATEGORY_ORDER = CATEGORIES
 
 
 def read_urls(path: str) -> list[str]:
@@ -37,7 +39,7 @@ def year_label(q: dict) -> str:
 
 def print_question(q: dict, prefix: str = "   • ") -> None:
     seen = f"  ×{q['times_reported']}" if q["times_reported"] > 1 else ""
-    meta = " · ".join(x for x in (", ".join(q["topics"] or []), q["track"], year_label(q)) if x)
+    meta = " · ".join(x for x in (", ".join(q["topics"] or []), q["position"], year_label(q)) if x)
     print(f"{prefix}{q['text']}{seen}\n       {meta}")
 
 
@@ -101,33 +103,30 @@ def print_report(questions: list[dict], header: str) -> None:
             print(f"   • {q['text']}   [{q['category']}]")
 
 
-def report_header(company: str, track: str | None, since: int | None) -> str:
-    filters = ", ".join(x for x in (f"{track} track" if track else "", f"since {since}" if since else "") if x)
-    return company + (f" ({filters})" if filters else "")
+def report_header(scope: Scope) -> str:
+    return f"{scope.company} ({scope.label()})"
 
 
-def cmd_report(company: str, track: str | None, since: int | None) -> None:
+def cmd_report(scope: Scope) -> None:
     from prepradar.store import db
 
     with db.connect() as conn:
-        questions = db.all_questions(conn, company, track, since)
-    print_report(questions, report_header(company, track, since))
+        questions = db.all_questions(conn, scope)
+    print_report(questions, report_header(scope))
 
 
-def save_guide(company: str, track: str | None, md: str) -> Path:
-    out = Path("reports") / (company + (f"-{track.lower().replace('/', '-')}" if track else "") + ".md")
+def save_guide(scope: Scope, md: str) -> Path:
+    out = Path("reports") / f"{scope.slug()}.md"  # same naming as the API's guide_path
     out.parent.mkdir(exist_ok=True)
     out.write_text(md)
     return out
 
 
-def cmd_run(company: str, track: str | None, since: int | None, limit: int, refresh: bool,
-            list_only: bool) -> None:
+def cmd_run(scope: Scope, limit: int, refresh: bool, list_only: bool) -> None:
     from prepradar.graph.build import build
 
     graph = build()
-    inputs = {"company": company, "track": track, "since": since, "limit": limit, "refresh": refresh,
-              "with_guide": not list_only}
+    inputs = {"scope": scope, "limit": limit, "refresh": refresh, "with_guide": not list_only}
     final: dict = {}
     # stream_mode="updates" yields {node_name: fields_it_returned} after each node
     for update in graph.stream(inputs, stream_mode="updates"):
@@ -141,22 +140,23 @@ def cmd_run(company: str, track: str | None, since: int | None, limit: int, refr
     print()
     if final.get("guide_md"):
         print(final["guide_md"])
-        print(f"saved {save_guide(company, track, final['guide_md'])}")
+        print(f"saved {save_guide(scope, final['guide_md'])}")
     else:
-        print_report(final.get("questions", []), report_header(company, track, since))
+        print_report(final.get("questions", []), report_header(scope))
 
 
-def cmd_guide(company: str, track: str | None, since: int | None) -> None:
+def cmd_guide(scope: Scope) -> None:
     from prepradar.report.writer import render_markdown, write_guide
     from prepradar.store import db
 
     with db.connect() as conn:
-        questions = db.all_questions(conn, company, track, since)
+        questions = db.all_questions(conn, scope)
     if not questions:
-        raise RuntimeError(f"no questions stored for {company}; run `prepradar run {company}` first")
-    md = render_markdown(company, track, write_guide(company, track, questions))
+        raise RuntimeError(f"no questions stored for {scope.label()} at {scope.company}; "
+                           f"run `prepradar run {scope.company}` first")
+    md = render_markdown(scope, write_guide(scope, questions))
     print(md)
-    print(f"saved {save_guide(company, track, md)}")
+    print(f"saved {save_guide(scope, md)}")
 
 
 def cmd_graph() -> None:
@@ -165,13 +165,13 @@ def cmd_graph() -> None:
     print(build().get_graph().draw_mermaid())
 
 
-def cmd_ask(company: str, query: str, k: int, track: str | None, since: int | None) -> None:
+def cmd_ask(scope: Scope, query: str, k: int) -> None:
     from prepradar.store import db
     from prepradar.store.embeddings import embed_query
 
     with db.connect() as conn:
-        rows = db.search(conn, company, embed_query(query), k, track, since)
-    print(f'"{query}" at {company}: top {len(rows)}\n')
+        rows = db.search(conn, scope, embed_query(query), k)
+    print(f'"{query}" at {scope.company} ({scope.label()}): top {len(rows)}\n')
     for q in rows:
         print_question(q, prefix=f"  {q['score']:.2f}  [{q['category']}] ")
 
@@ -234,6 +234,33 @@ def cmd_recategorise(company: str | None) -> None:
     print(f"{moves} of {len(rows)} questions moved; {tags} tags followed their questions")
 
 
+def cmd_reposition() -> None:
+    """Fill function/position from the role titles candidates wrote (and the old
+    engineering-only track), for questions stored before roles.py existed or after
+    a ladder changes."""
+    from prepradar.extract.extractor import place_roles
+    from prepradar.roles import engineering_level
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        titles = [r["role"] for r in conn.execute(
+            "SELECT DISTINCT role FROM questions WHERE role IS NOT NULL ORDER BY role")]
+        placed = place_roles(titles)
+        for title, (function, position) in placed.items():
+            if function == "Engineering":
+                position = engineering_level(title)
+            conn.execute("UPDATE questions SET function = %s, position = %s WHERE role = %s",
+                         (function, position, title))
+            print(f"  {title:45} → {function} · {position}")
+        # untitled rows: the old "Data" track meant the data function
+        conn.execute("UPDATE questions SET function = 'Data' WHERE role IS NULL AND track = 'Data'")
+        # tracks are engineering specialties now
+        conn.execute("UPDATE questions SET track = 'General' WHERE function <> 'Engineering' OR NOT track = ANY(%s)",
+                     (TRACKS,))
+        conn.commit()
+    print(f"{len(placed)} of {len(titles)} role titles placed")
+
+
 def cmd_dedupe(company: str | None) -> None:
     from prepradar.extract.extractor import same_question
     from prepradar.store import db
@@ -279,12 +306,52 @@ def cmd_review_tags() -> None:
     print(f"{len(tags)} discovered tags reviewed: {dropped} dropped, {merged} merged")
 
 
+def cmd_recheck(company: str | None) -> None:
+    """Re-run the firsthand check on every accepted source; forget the ones it now rejects."""
+    from prepradar.extract.extractor import classify
+    from prepradar.sources.fetch import load_page
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT url, company, title FROM sources WHERE status = 'extracted'
+               AND (%s::text IS NULL OR company = %s) ORDER BY company, id""",
+            (company, company),
+        ).fetchall()
+        dropped = unreadable = 0
+        for r in rows:
+            page = load_page(r["url"], r["title"], None)
+            if page is None:
+                unreadable += 1  # can't re-read it now (blocked, deleted); keep what we have
+                continue
+            check = classify(page, r["company"])
+            if not check.is_firsthand:
+                removed = db.forget_source(conn, r["url"])
+                dropped += 1
+                print(f"  dropped ({check.page_kind}, {removed} questions)  {r['url']}")
+    print(f"{len(rows)} sources rechecked: {dropped} dropped, {unreadable} couldn't be fetched (kept)")
+
+
 def cmd_forget(urls: list[str]) -> None:
     from prepradar.store import db
 
     with db.connect() as conn:
         for url in urls:
             print(f"forgot {url}: {db.forget_source(conn, url)} questions removed")
+
+
+def add_scope_args(p) -> None:
+    p.add_argument("--function", default="Engineering", choices=list(FUNCTIONS))
+    p.add_argument("--position", help="a rung on the function's ladder, e.g. 'SDE 2', 'Product Manager'")
+    p.add_argument("--track", choices=TRACKS, help="engineering specialty")
+    p.add_argument("--since", type=int, help="interview (or posted) year >= this")
+
+
+def scope_from(args) -> Scope:
+    try:
+        return Scope(args.company, args.function, args.position, args.track, args.since)
+    except ValueError as e:
+        raise SystemExit(f"error: {e}")
 
 
 def main() -> None:
@@ -307,13 +374,11 @@ def main() -> None:
         if name == "ask":
             p.add_argument("query")
             p.add_argument("-k", type=int, default=10)
-        p.add_argument("--track", choices=TRACKS)
-        p.add_argument("--since", type=int, help="interview (or posted) year >= this")
+        add_scope_args(p)
 
     p = sub.add_parser("run", help="full pipeline as a LangGraph: cache → search → ingest → coverage loop → report")
     p.add_argument("company")
-    p.add_argument("--track", choices=TRACKS)
-    p.add_argument("--since", type=int)
+    add_scope_args(p)
     p.add_argument("--limit", type=int, default=10, help="max new pages per search round")
     p.add_argument("--refresh", action="store_true", help="search even if cached data is sufficient")
     p.add_argument("--list", dest="list_only", action="store_true",
@@ -321,8 +386,7 @@ def main() -> None:
 
     p = sub.add_parser("guide", help="LLM-written prep guide from stored questions (no searching)")
     p.add_argument("company")
-    p.add_argument("--track", choices=TRACKS)
-    p.add_argument("--since", type=int)
+    add_scope_args(p)
 
     sub.add_parser("graph", help="print the pipeline graph as a Mermaid diagram")
 
@@ -335,7 +399,12 @@ def main() -> None:
     p = sub.add_parser("recategorise", help="re-sort stored questions under the current category rules")
     p.add_argument("--company")
 
+    sub.add_parser("reposition", help="fill function/position on stored questions from their role titles")
+
     p = sub.add_parser("dedupe", help="merge stored near-duplicate questions (LLM-judged)")
+    p.add_argument("--company")
+
+    p = sub.add_parser("recheck", help="re-run the firsthand check on accepted sources; forget failures")
     p.add_argument("--company")
 
     p = sub.add_parser("forget", help="drop a source wrongly accepted as firsthand, and its questions")
@@ -356,21 +425,25 @@ def run(args: argparse.Namespace) -> None:
     elif args.cmd == "ingest":
         cmd_ingest(args.company, args.urls_file, args.limit)
     elif args.cmd == "report":
-        cmd_report(args.company, args.track, args.since)
+        cmd_report(scope_from(args))
     elif args.cmd == "ask":
-        cmd_ask(args.company, args.query, args.k, args.track, args.since)
+        cmd_ask(scope_from(args), args.query, args.k)
     elif args.cmd == "run":
-        cmd_run(args.company, args.track, args.since, args.limit, args.refresh, args.list_only)
+        cmd_run(scope_from(args), args.limit, args.refresh, args.list_only)
     elif args.cmd == "guide":
-        cmd_guide(args.company, args.track, args.since)
+        cmd_guide(scope_from(args))
     elif args.cmd == "graph":
         cmd_graph()
     elif args.cmd == "topics":
         cmd_topics(args.discovered, args.merge, args.delete, args.review)
     elif args.cmd == "recategorise":
         cmd_recategorise(args.company)
+    elif args.cmd == "reposition":
+        cmd_reposition()
     elif args.cmd == "dedupe":
         cmd_dedupe(args.company)
+    elif args.cmd == "recheck":
+        cmd_recheck(args.company)
     elif args.cmd == "forget":
         cmd_forget(args.urls)
 

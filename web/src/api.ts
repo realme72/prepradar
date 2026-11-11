@@ -6,6 +6,8 @@ export type Question = {
   specific: boolean;
   category: string;
   round: string;
+  function: string;
+  position: string;
   track: string;
   role: string | null;
   interview_year: number | null;
@@ -23,7 +25,26 @@ export type Company = {
   last_fetched: string;
 };
 
-export type Meta = { categories: string[]; tracks: string[] };
+export type Meta = {
+  categories: string[];
+  functions: Record<string, string[]>; // function -> its role ladder
+  tracks: string[]; // engineering specialties
+};
+
+// How many questions a company has per function and position (for the dropdowns).
+export type ScopeCount = { function: string; position: string; questions: number };
+
+// The filters every question/search/guide request takes. Mirrors Scope in roles.py.
+export type Scope = { function: string; position: string; track: string; since: number | null };
+
+export function scopeParams(s: Scope) {
+  return {
+    function: s.function,
+    position: s.position,
+    track: s.function === "Engineering" ? s.track : "",
+    since: s.since,
+  };
+}
 
 // Builds "/api/companies/zemoso/questions?track=Backend", skipping empty params.
 export function apiUrl(path: string, params: Record<string, string | number | null | undefined> = {}) {
@@ -35,7 +56,13 @@ export function apiUrl(path: string, params: Record<string, string | number | nu
   return `/api${path}${query ? `?${query}` : ""}`;
 }
 
-export type RunRequest = { company: string; track: string | null; refresh: boolean };
+export type RunRequest = {
+  company: string;
+  function: string;
+  position: string | null;
+  track: string | null;
+  refresh: boolean;
+};
 
 // One Server-Sent Event from POST /api/runs.
 export type RunEvent =

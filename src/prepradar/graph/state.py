@@ -7,12 +7,12 @@ and `log` accumulate across loop iterations.
 import operator
 from typing import Annotated, TypedDict
 
+from prepradar.roles import Scope
+
 
 class GraphState(TypedDict, total=False):
     # input
-    company: str
-    track: str | None
-    since: int | None
+    scope: Scope        # company, function, position, track, since
     limit: int          # max new pages sent to the LLM per search round
     refresh: bool       # search even if cached data looks sufficient
     with_guide: bool    # run the LLM guide writer at the end (default True)

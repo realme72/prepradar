@@ -37,7 +37,7 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .filters label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--muted); }
 .filters select {
   font: inherit; font-size: 0.95rem; color: var(--text); background: var(--surface);
-  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-width: 200px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-width: 150px; max-width: 100%;
 }
 
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -96,3 +96,4 @@ input[type="search"], .run-form input:not([type]) {
 .guide a.cite { text-decoration: none; margin: 0 1px; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; font-size: 0.85em; }
 .cite-target { scroll-margin-top: 24px; }
 .cite-target:target { background: var(--accent-soft); }
+.run-scope { font-size: 0.8rem; margin: 8px 0 0; }

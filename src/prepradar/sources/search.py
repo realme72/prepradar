@@ -6,6 +6,7 @@ that has a key configured, so a free tier running out doesn't stop ingestion.
 """
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 
@@ -106,6 +107,7 @@ def search(query: str, max_results: int = 10) -> tuple[str, list[SearchResult]]:
 
 
 # Queries aimed at places candidates write up their interviews.
+# Broad first-round queries for an engineering search with no specific role.
 QUERY_TEMPLATES = [
     "{company} interview experience",
     "{company} interview experience software engineer geeksforgeeks",
@@ -126,8 +128,34 @@ BLOCKED_SITES = ("rocketreach.co", "leadiq.com", "zoominfo.com", "apollo.io", "s
                  "contactout.com", "crunchbase.com", "mapquest.com", "tavily.com/knowledge", "tracxn.com")
 
 
+# For any other scope: one set per search term ("product manager", "account executive").
+ROLE_QUERY_TEMPLATES = [
+    "{company} {term} interview experience",
+    "{company} {term} interview experience reddit",
+    "{company} {term} interview questions glassdoor ambitionbox",
+]
+# Search engines rank recent posts first, so older write-ups only show up when asked
+# for by year.
+YEARS_BACK = 3
+
+
+def broad_queries(scope, this_year: int | None = None) -> list[str]:
+    """First-round queries for a Scope (see roles.py)."""
+    this_year = this_year or datetime.now().year
+    company, terms = scope.company, scope.search_terms()
+    if scope.function == "Engineering" and not scope.position and not scope.track:
+        queries = [t.format(company=company) for t in QUERY_TEMPLATES]
+        year_term = ""
+    else:
+        queries = [t.format(company=company, term=term) for term in terms for t in ROLE_QUERY_TEMPLATES]
+        year_term = f" {terms[0]}"
+    queries += [f"{company}{year_term} interview experience {this_year - i}" for i in range(1, YEARS_BACK + 1)]
+    return queries
+
+
 def find_experience_urls(company: str, queries: list[str] | None = None, per_query: int = 8) -> list[SearchResult]:
-    """Run the queries (default: QUERY_TEMPLATES), keep unique results that plausibly mention the company."""
+    """Run the queries (default: the engineering QUERY_TEMPLATES), keep unique results
+    that plausibly mention the company."""
     queries = queries or [t.format(company=company) for t in QUERY_TEMPLATES]
     seen: dict[str, SearchResult] = {}
     for query in queries:

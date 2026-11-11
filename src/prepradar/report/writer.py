@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from prepradar import config
 from prepradar.extract.extractor import client
 from prepradar.models import Category
+from prepradar.roles import Scope
 
 CATEGORY_ORDER = list(Category.__args__)
 MAX_PER_CATEGORY = 25  # keeps the prompt bounded for companies with lots of data
@@ -37,7 +38,7 @@ class PrepGuide(BaseModel):
     caveats: list[str] = Field(description="Data limitations a reader must know: thin areas, old data, few sources")
 
 
-SYSTEM = """You write interview prep guides for {company}{track_note} using ONLY the data given.
+SYSTEM = """You write interview prep guides for {company} ({scope}) using ONLY the data given.
 
 Hard rules:
 - Every claim must be supported by the questions (Q#) or sources (S#) provided. Cite them
@@ -79,8 +80,8 @@ def _select(questions: list[dict]) -> list[dict]:
     return picked
 
 
-def _facts(questions: list[dict], n_sources: int, track: str | None) -> str:
-    from prepradar.graph.nodes import MIN_PER_CATEGORY, core_for
+def _facts(questions: list[dict], n_sources: int, scope: Scope) -> str:
+    from prepradar.graph.nodes import MIN_PER_CATEGORY
 
     specific = [q for q in questions if q["specific"]]
     cats = Counter(q["category"] for q in specific)
@@ -93,9 +94,10 @@ def _facts(questions: list[dict], n_sources: int, track: str | None) -> str:
         f"- Most frequent topics: " + ", ".join(f"{t} {n}" for t, n in topics.most_common(12)),
 
         f"- Years covered: {years[0]}–{years[-1]}" if years else "- Years covered: unknown",
+        f"- Positions: " + ", ".join(f"{p} {n}" for p, n in Counter(q["position"] for q in questions).most_common()),
         f"- Reported by more than one candidate: {len(repeated)} questions",
         f"- Thin core categories (fewer than {MIN_PER_CATEGORY} questions): "
-        + (", ".join(c for c in core_for(track) if cats.get(c, 0) < MIN_PER_CATEGORY) or "none"),
+        + (", ".join(c for c in scope.core() if cats.get(c, 0) < MIN_PER_CATEGORY) or "none"),
     ])
 
 
@@ -113,7 +115,7 @@ def _rounds_per_source(questions: list[dict], url_to_sid: dict[str, str]) -> str
     return "- Round types each write-up describes (one candidate each):\n" + ("\n".join(rows) or "  none stated")
 
 
-def write_guide(company: str, track: str | None, questions: list[dict]) -> Grounded:
+def write_guide(scope: Scope, questions: list[dict]) -> Grounded:
     picked = _select(questions)
     sources: dict[str, str] = {}
     url_to_sid: dict[str, str] = {}
@@ -133,13 +135,13 @@ def write_guide(company: str, track: str | None, questions: list[dict]) -> Groun
             f"{qid} [{q['category']}; {', '.join(q['topics'] or []) or '-'}; round {q['round']}; {year}; "
             f"×{q['times_reported']}{'; VAGUE' if not q['specific'] else ''}] {q['text']}  (sources: {', '.join(sids)})"
         )
-    facts = _facts(picked, len(sources), track) + "\n" + _rounds_per_source(picked, url_to_sid)
+    facts = _facts(picked, len(sources), scope) + "\n" + _rounds_per_source(picked, url_to_sid)
     source_lines = [f"{sid}: {url}" for sid, url in sources.items()]
 
     # Which sections the guide must have is decided here, not left to the model:
     # with ~100 questions it sometimes wrote one section and stopped.
     required = [c for c in CATEGORY_ORDER if any(q["category"] == c and q["specific"] for q in picked)]
-    instructions = SYSTEM.format(company=company, track_note=f" ({track} track)" if track else "")
+    instructions = SYSTEM.format(company=scope.company.title(), scope=scope.label())
     data = ("FACTS\n" + facts + "\n\nSOURCES\n" + "\n".join(source_lines)
             + "\n\nQUESTIONS\n" + "\n".join(lines))
 
@@ -197,8 +199,8 @@ def _cited_ids(g: Grounded) -> list[str]:
     return sorted(seen, key=lambda i: int(i[1:]))
 
 
-def render_markdown(company: str, track: str | None, g: Grounded) -> str:
-    title = f"# {company.title()} interview prep" + (f" — {track} track" if track else "")
+def render_markdown(scope: Scope, g: Grounded) -> str:
+    title = f"# {scope.company.title()} interview prep — {scope.label()}"
     out = [title, "", "_Generated only from candidate-reported questions. "
            "Every [Q#]/[S#] links back to a real write-up._", "", "## At a glance", g.facts, "",
            "## Process", g.guide.process_overview, ""]

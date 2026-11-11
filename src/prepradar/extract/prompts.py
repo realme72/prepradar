@@ -10,7 +10,10 @@ pick page_kind:
 - own_experience: one specific person narrates their own interview at {company}: their
   rounds, what they were asked, how it went.
 - candidate_reviews: separate reviews, each written by a different candidate (e.g. a
-  Glassdoor or AmbitionBox review page). NOT one author summarising what candidates report.
+  Glassdoor or AmbitionBox review page: "I appeared for an interview in Jul 2026, where I
+  was asked..."). Still candidate_reviews when the site adds model answers ("Ans. ...")
+  under the questions. NOT one author (or an AI) summarising what candidates report:
+  "below is a summary of the process and key points from the interviews" is a guide.
 - guide: a prep guide or process overview, even if it quotes or retells candidates'
   stories. "Candidates consistently report...", "this guide covers...", "a candidate
   I'll call X...", second person ("you will be asked..."), or promoting a prep product
@@ -43,6 +46,31 @@ CATEGORY_RULES = """Categories (pick the single best):
              streaks, cohorts, retention), ETL and data pipelines, Spark/PySpark, data
              warehousing, product metric and case questions.
   ML/AI      machine learning, data science, GenAI/LLMs.
+ Product, design and business roles:
+  Product Sense      design or improve a product/feature, users and their problems, "how would
+                     you improve X", favourite product.
+  Metrics & Experimentation
+                     success metrics, a metric dropped (root cause), A/B tests, north star.
+  Estimation         guesstimates and market sizing ("how many panes of glass in Seattle").
+  Strategy           market entry, competition, pricing, business model, "should X launch Y".
+  Execution          prioritisation, roadmaps, trade-offs, working with engineering, launches.
+  Portfolio & Critique
+                     walking through a design portfolio, critiquing an existing product's design.
+  Design Exercise    a live or take-home design task (whiteboard challenge, app redesign).
+  Sales Pitch & Role-play
+                     "sell me this pen", mock calls, objection handling, demos.
+  Pipeline & Negotiation
+                     prospecting, quotas, deal cycles, closing, negotiation, CRM hygiene.
+  Market & Product Knowledge
+                     knowing the company's product, customers and competitors for a sales role.
+  Marketing Strategy positioning, go-to-market, brand, audience and channel choice.
+  Campaigns & Growth running campaigns, SEO/SEM, performance marketing, funnels, CAC/LTV.
+  Operations & Process
+                     process design, SLAs, logistics, vendor management, operational metrics.
+  HR & Recruiting    hiring processes, employee relations, labour policy, HR operations.
+ Every role:
+  People Management  managing a team: hiring, firing, performance reviews, growing people,
+                     handling an underperformer. (Your own conflicts as an IC are Behavioral.)
   Behavioral past projects, conflict, pressure, motivation, HR and salary.
   Other      aptitude, puzzles, anything else.
 Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
@@ -56,6 +84,9 @@ Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
 "Explain closures with an example" / "Implement debounce" -> Frontend (JavaScript).
 "Find each user's longest streak of active days" -> Data (Analytics SQL).
 "Handle nulls and group-by aggregation in PySpark" -> Data (Spark).
+"How would you improve Google Maps?" -> Product Sense.
+"Daily active users dropped 10%, what do you do?" -> Metrics & Experimentation.
+"How do you handle an engineer who keeps missing deadlines?" -> People Management.
 """
 
 # Step 2: extraction, run only on pages step 1 accepted.
@@ -88,8 +119,17 @@ not the specific problem: "Rate Limiting", not "How To Rate Limit Login API";
 say what kind of question it is ("Algorithm Knowledge", "Technical Questions",
 "Interview Preparation", "Low-Level Design"); fewer tags is fine.
 
-track = the role family the candidate interviewed for (Backend, Frontend, Fullstack,
-ML/AI, ...). Use General only if the role is unknown.
+function and position = who the interview was for. Pick the function, then the closest
+position on its ladder; Unknown if the write-up doesn't say or none fits:
+{ladders}
+Map titles onto the ladder: "SDE-I", "Software Engineer 1", new grad -> SDE 1; "SDE-II",
+"Software Engineer 2" -> SDE 2; "Senior Software Engineer", "SDE-III" -> SDE 3 / Senior.
+Only pick a rung the title or text states; "Software Engineer" or "Backend Engineer"
+with no level is Unknown. A data engineer is the Data function, and a business analyst
+or BI engineer is Data, Business / BI Analyst.
+
+track = engineering specialty only (Backend, Frontend, Fullstack, ML/AI, Mobile, QA,
+DevOps); an AI/ML engineer is ML/AI. Use General if unknown or not an engineering role.
 
 interview_year = the year the interview took place, only if the title or text states or
 clearly implies it (e.g. "Off-Campus 2021", "interviewed in May 2024"). Otherwise null.
@@ -104,6 +144,12 @@ Page text:
 \"\"\"
 {text}
 \"\"\""""
+
+
+def format_ladders() -> str:
+    from prepradar.roles import FUNCTIONS
+
+    return "\n".join(f"  {name}: {', '.join(f.positions)}" for name, f in FUNCTIONS.items())
 
 
 def format_vocabulary(topics: dict[str, str]) -> str:

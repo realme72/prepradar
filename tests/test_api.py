@@ -26,8 +26,18 @@ def test_questions_have_sources():
     assert rows and all(r["urls"] for r in rows)
 
 
-def test_unknown_company_is_404():
-    assert client.get("/api/companies/nope-inc/questions").status_code == 404
+def test_unknown_company_has_no_questions():
+    assert client.get("/api/companies/nope-inc/questions").json() == []
+
+
+def test_position_from_another_ladder_is_rejected():
+    r = client.get("/api/companies/zemoso/questions", params={"function": "Sales", "position": "SDE 2"})
+    assert r.status_code == 400
+
+
+def test_meta_lists_each_functions_ladder():
+    functions = client.get("/api/meta").json()["functions"]
+    assert "SDE 2" in functions["Engineering"] and "Account Executive" in functions["Sales"]
 
 
 def test_search_ranks_by_meaning():

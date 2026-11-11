@@ -25,6 +25,7 @@ export function QuestionCard({ question: q }: Props) {
           // key tells React which item is which when a list re-renders
           <span key={t} className="badge">{t}</span>
         ))}
+        {q.position !== "Unknown" && <span className="muted">{q.position}</span>}
         {q.round !== "Unknown" && <span className="muted">{q.round}</span>}
         {year && <span className="muted">{year}</span>}
         {q.score !== undefined && <span className="muted">match {q.score.toFixed(2)}</span>}

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { streamRun, type RunEvent } from "../api";
+import { streamRun, type RunEvent, type Scope } from "../api";
 
 type Props = {
   initialCompany: string; // the selected company, as a starting value only
-  track: string;
+  scope: Scope; // the run searches for whatever the filters currently select
   onFinished: (company: string) => void;
 };
 
@@ -15,7 +15,7 @@ type LogLine = { node: string; message: string };
 // so they don't get lifted to App. App only hears about the end, via onFinished.
 // App renders this with key={company}, so picking another company gives a fresh
 // panel (React throws away a component's state when its key changes).
-export function RunPanel({ initialCompany, track, onFinished }: Props) {
+export function RunPanel({ initialCompany, scope, onFinished }: Props) {
   const [company, setCompany] = useState(initialCompany);
   const [refresh, setRefresh] = useState(false);
   const [log, setLog] = useState<LogLine[]>([]);
@@ -53,7 +53,17 @@ export function RunPanel({ initialCompany, track, onFinished }: Props) {
     };
 
     try {
-      await streamRun({ company: name, track: track || null, refresh }, handle, controller.current.signal);
+      await streamRun(
+        {
+          company: name,
+          function: scope.function,
+          position: scope.position || null,
+          track: scope.function === "Engineering" ? scope.track || null : null,
+          refresh,
+        },
+        handle,
+        controller.current.signal,
+      );
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setStatus("error");
@@ -80,6 +90,10 @@ export function RunPanel({ initialCompany, track, onFinished }: Props) {
           {running ? "Running…" : "Fetch & build guide"}
         </button>
       </div>
+      <p className="muted run-scope">
+        Searches for {scope.position || `all ${scope.function} roles`}
+        {scope.function === "Engineering" && scope.track ? `, ${scope.track} track` : ""}. Change it with the filters above.
+      </p>
       {log.length > 0 && (
         <ol className="run-log">
           {log.map((l, i) => (

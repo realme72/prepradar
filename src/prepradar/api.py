@@ -10,13 +10,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from prepradar.models import Category, Track
+from prepradar.roles import CATEGORIES, FUNCTIONS, TRACKS, UNKNOWN, Scope
 from prepradar.store import db
 from prepradar.store.embeddings import embed_query, model
 
 REPORTS = Path("reports")
-CATEGORIES = list(Category.__args__)
-TRACKS = [t for t in Track.__args__ if t != "General"]
 
 
 @asynccontextmanager
@@ -28,14 +26,24 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="PrepRadar", lifespan=lifespan)
 
 
-def guide_path(company: str, track: str | None) -> Path:
-    # same naming as the CLI's save_guide
-    return REPORTS / (company + (f"-{track.lower().replace('/', '-')}" if track else "") + ".md")
+def guide_path(scope: Scope) -> Path:
+    return REPORTS / f"{scope.slug()}.md"  # same naming as the CLI's save_guide
+
+
+def scope_of(company: str, function: str, position: str | None, track: str | None, since: int | None) -> Scope:
+    try:
+        return Scope(company, function, position or None, track or None, since)
+    except ValueError as e:  # unknown function, or a position from another ladder
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/meta")
 def meta():
-    return {"categories": CATEGORIES, "tracks": TRACKS}
+    return {
+        "categories": CATEGORIES,
+        "functions": {name: f.positions + [UNKNOWN] for name, f in FUNCTIONS.items()},
+        "tracks": TRACKS,
+    }
 
 
 @app.get("/api/companies")
@@ -50,28 +58,34 @@ def companies():
         ).fetchall()
 
 
-@app.get("/api/companies/{company}/questions")
-def questions(company: str, track: str | None = None, since: int | None = None):
+@app.get("/api/companies/{company}/scopes")
+def scopes(company: str):
+    """Question counts per function and position, for the UI's dropdowns."""
     with db.connect() as conn:
-        rows = db.all_questions(conn, company, track, since)
-    if not rows:
-        raise HTTPException(404, f"no questions for {company}")
-    return rows
+        return db.scope_counts(conn, company)
+
+
+@app.get("/api/companies/{company}/questions")
+def questions(company: str, function: str = "Engineering", position: str | None = None,
+              track: str | None = None, since: int | None = None):
+    with db.connect() as conn:
+        return db.all_questions(conn, scope_of(company, function, position, track, since))
 
 
 @app.get("/api/companies/{company}/search")
-def search(company: str, q: str = Query(min_length=2), k: int = 10,
-           track: str | None = None, since: int | None = None):
+def search(company: str, q: str = Query(min_length=2), k: int = 10, function: str = "Engineering",
+           position: str | None = None, track: str | None = None, since: int | None = None):
     with db.connect() as conn:
-        rows = db.search(conn, company, embed_query(q), k, track, since)
+        rows = db.search(conn, scope_of(company, function, position, track, since), embed_query(q), k)
     for r in rows:
         r["score"] = round(float(r["score"]), 3)
     return rows
 
 
 @app.get("/api/companies/{company}/guide")
-def guide(company: str, track: str | None = None):
-    path = guide_path(company, track)
+def guide(company: str, function: str = "Engineering", position: str | None = None,
+          track: str | None = None, since: int | None = None):
+    path = guide_path(scope_of(company, function, position, track, since))
     if not path.exists():
         raise HTTPException(404, "no guide yet; start a run to generate one")
     return {"markdown": path.read_text()}
@@ -79,6 +93,8 @@ def guide(company: str, track: str | None = None):
 
 class RunRequest(BaseModel):
     company: str
+    function: str = "Engineering"
+    position: str | None = None
     track: str | None = None
     since: int | None = None
     refresh: bool = False
@@ -89,11 +105,10 @@ def run(req: RunRequest):
     """Run the LangGraph pipeline and stream each node's decisions as Server-Sent Events."""
     from prepradar.graph.build import build
 
-    company = req.company.strip().lower()
+    scope = scope_of(req.company.strip().lower(), req.function, req.position, req.track, req.since)
 
     def events():
-        inputs = {"company": company, "track": req.track, "since": req.since,
-                  "limit": 10, "refresh": req.refresh, "with_guide": True}
+        inputs = {"scope": scope, "limit": 10, "refresh": req.refresh, "with_guide": True}
         final: dict = {}
         try:
             for update in build().stream(inputs, stream_mode="updates"):
@@ -102,7 +117,7 @@ def run(req: RunRequest):
                     for line in changes.get("log", []):
                         yield f"data: {json.dumps({'node': node, 'message': line})}\n\n"
             if final.get("guide_md"):
-                path = guide_path(company, req.track)
+                path = guide_path(scope)
                 path.parent.mkdir(exist_ok=True)
                 path.write_text(final["guide_md"])
             yield f"data: {json.dumps({'done': True, 'gaps': final.get('gaps') or []})}\n\n"

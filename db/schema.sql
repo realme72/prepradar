@@ -63,3 +63,8 @@ CREATE TABLE IF NOT EXISTS question_topics (
 -- Metadata filters narrow rows first; HNSW makes the similarity ranking fast.
 CREATE INDEX IF NOT EXISTS questions_filter_idx ON questions (company, track, category);
 CREATE INDEX IF NOT EXISTS questions_embedding_idx ON questions USING hnsw (embedding vector_cosine_ops);
+
+-- Who the interview was for (see roles.py). Existing rows were engineering searches.
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS function TEXT NOT NULL DEFAULT 'Engineering';
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS position TEXT NOT NULL DEFAULT 'Unknown';
+CREATE INDEX IF NOT EXISTS questions_scope_idx ON questions (company, function, position);

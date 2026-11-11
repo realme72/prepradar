@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from prepradar.graph.state import GraphState
 from prepradar.pipeline import Candidate, ingest
-from prepradar.sources.search import QUERY_TEMPLATES, find_experience_urls
+from prepradar.sources.search import broad_queries, find_experience_urls
 from prepradar.store import db
 
 MIN_TOTAL = 30            # fewer cached questions than this -> search
@@ -16,20 +16,10 @@ MIN_PER_CATEGORY = 3      # a core category below this is a gap
 MAX_RETRIES = 2           # gap-filling search rounds per run
 FRESH_FOR = timedelta(days=30)
 
-# Categories a candidate on each track should expect to prepare.
-CORE_CATEGORIES = {
-    "Backend": ["DSA", "LLD", "HLD", "Backend", "Database", "Behavioral"],
-    "Frontend": ["DSA", "Frontend", "HLD", "Behavioral"],
-    "Fullstack": ["DSA", "LLD", "HLD", "Backend", "Database", "Frontend", "Behavioral"],
-    "DevOps": ["DevOps & Cloud", "Backend", "Behavioral"],
-    "ML/AI": ["ML/AI", "DSA", "Behavioral"],
-    "Data": ["Data", "Database", "DSA", "Behavioral"],
-}
-DEFAULT_CORE = CORE_CATEGORIES["Backend"]
-
 # Targeted searches per thin category. Phrased as "interview experience", never
 # "interview questions": the latter mostly finds prep guides and question banks.
-# Design rounds mostly appear in experienced-hire loops, so HLD/LLD ask for those.
+# Engineering: tuned per category. Design rounds mostly appear in experienced-hire
+# loops, so HLD/LLD ask for those.
 GAP_QUERIES = {
     "DSA": ["{company} coding round interview experience",
             "{company} online assessment interview experience"],
@@ -49,18 +39,34 @@ GAP_QUERIES = {
     "ML/AI": ["{company} machine learning engineer interview experience"],
     "Behavioral": ["{company} hiring manager round interview experience"],
 }
+# Other functions: "{company} {role term} interview experience {round name}".
+GAP_HINTS = {
+    "Product Sense": "product sense round", "Metrics & Experimentation": "metrics round",
+    "Estimation": "guesstimate round", "Strategy": "case study round", "Execution": "execution round",
+    "Portfolio & Critique": "portfolio review", "Design Exercise": "design challenge",
+    "Sales Pitch & Role-play": "role play round", "Pipeline & Negotiation": "sales round",
+    "Market & Product Knowledge": "sales interview", "Marketing Strategy": "marketing case study",
+    "Campaigns & Growth": "marketing round", "Operations & Process": "operations case study",
+    "HR & Recruiting": "HR round", "People Management": "managerial round",
+    "Behavioral": "behavioral round", "Data": "SQL round", "Database": "SQL round",
+}
 
 
-def core_for(track: str | None) -> list[str]:
-    return CORE_CATEGORIES.get(track, DEFAULT_CORE)
+def gap_queries(scope, gap: str) -> list[str]:
+    if scope.function == "Engineering" and gap in GAP_QUERIES:
+        role = f"{scope.track.lower()} engineer" if scope.track else "software engineer"
+        return [t.format(company=scope.company, role=role) for t in GAP_QUERIES[gap]]
+    hint = GAP_HINTS.get(gap, gap.lower())
+    return [f"{scope.company} {term} interview experience {hint}" for term in scope.search_terms()[:2]]
 
 
 # ── nodes ────────────────────────────────────────────────────────────────────
 
 def check_cache(state: GraphState) -> dict:
+    scope = state["scope"]
     with db.connect() as conn:
-        total = sum(db.category_counts(conn, state["company"], state.get("track"), state.get("since")).values())
-        last = db.last_fetched(conn, state["company"])
+        total = sum(db.category_counts(conn, scope).values())
+        last = db.last_fetched(conn, scope.company)
     fresh = last is not None and datetime.now(timezone.utc) - last < FRESH_FOR
     cached = total >= MIN_TOTAL and fresh and not state.get("refresh")
     why = (f"{total} questions cached, last fetched {last:%Y-%m-%d}" if last else "nothing cached")
@@ -69,21 +75,19 @@ def check_cache(state: GraphState) -> dict:
 
 
 def plan_queries(state: GraphState) -> dict:
-    company, gaps = state["company"], state.get("gaps")
-    if gaps is None:  # first round: broad queries
-        queries = [t.format(company=company) for t in QUERY_TEMPLATES]
-        return {"queries": queries, "log": [f"plan_queries: {len(queries)} broad queries"]}
-    role = f"{state['track'].lower()} engineer" if state.get("track") else "software engineer"
+    scope, gaps = state["scope"], state.get("gaps")
     done = set(state.get("searched", []))
-    queries = [q for g in gaps for t in GAP_QUERIES[g]
-               if (q := t.format(company=company, role=role)) not in done]
+    if gaps is None:  # first round: broad queries
+        queries = [q for q in broad_queries(scope) if q not in done]
+        return {"queries": queries, "log": [f"plan_queries: {len(queries)} broad queries for {scope.label()}"]}
+    queries = [q for g in gaps for q in gap_queries(scope, g) if q not in done]
     retries = state.get("retries", 0) + 1
     return {"queries": queries, "retries": retries,
             "log": [f"plan_queries: retry {retries}, targeting {', '.join(gaps)}"]}
 
 
 def search(state: GraphState) -> dict:
-    results = find_experience_urls(state["company"], state["queries"]) if state["queries"] else []
+    results = find_experience_urls(state["scope"].company, state["queries"]) if state["queries"] else []
     candidates = [Candidate(r.url, r.title, r.raw_content) for r in results]
     return {"candidates": candidates, "searched": state["queries"],
             "log": [f"search: {len(candidates)} candidate pages"]}
@@ -91,7 +95,7 @@ def search(state: GraphState) -> dict:
 
 def ingest_pages(state: GraphState) -> dict:
     with db.connect() as conn:
-        stats = ingest(conn, state["company"], state["candidates"], state.get("limit", 15))
+        stats = ingest(conn, state["scope"].company, state["candidates"], state.get("limit", 15))
     return {"last_new_questions": stats.new_questions,
             "log": [f"ingest: {stats.pages} new write-ups ({stats.rejected} guides/question banks rejected), "
                     f"{stats.new_questions} new questions"
@@ -99,17 +103,18 @@ def ingest_pages(state: GraphState) -> dict:
 
 
 def coverage_check(state: GraphState) -> dict:
+    scope = state["scope"]
     with db.connect() as conn:
-        counts = db.category_counts(conn, state["company"], state.get("track"), state.get("since"))
-    gaps = [c for c in core_for(state.get("track")) if counts.get(c, 0) < MIN_PER_CATEGORY]
-    summary = ", ".join(f"{c} {counts.get(c, 0)}" for c in core_for(state.get("track")))
+        counts = db.category_counts(conn, scope)
+    gaps = [c for c in scope.core() if counts.get(c, 0) < MIN_PER_CATEGORY]
+    summary = ", ".join(f"{c} {counts.get(c, 0)}" for c in scope.core())
     return {"coverage": counts, "gaps": gaps,
             "log": [f"coverage_check: {summary}" + (f" → thin: {', '.join(gaps)}" if gaps else " → all covered")]}
 
 
 def retrieve(state: GraphState) -> dict:
     with db.connect() as conn:
-        questions = db.all_questions(conn, state["company"], state.get("track"), state.get("since"))
+        questions = db.all_questions(conn, state["scope"])
     return {"questions": questions, "log": [f"retrieve: {len(questions)} questions"]}
 
 
@@ -118,9 +123,9 @@ def write_guide(state: GraphState) -> dict:
 
     if not state.get("with_guide", True) or not state["questions"]:
         return {"log": ["write_guide: skipped"]}
-    g = write(state["company"], state.get("track"), state["questions"])
+    g = write(state["scope"], state["questions"])
     note = f", {g.dropped_citations} bad citations removed" if g.dropped_citations else ", all citations valid"
-    return {"guide_md": render_markdown(state["company"], state.get("track"), g),
+    return {"guide_md": render_markdown(state["scope"], g),
             "log": [f"write_guide: {len(g.guide.sections)} sections from {len(g.questions)} questions{note}"]}
 
 

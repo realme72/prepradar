@@ -1,4 +1,5 @@
 from prepradar.graph import nodes
+from prepradar.roles import Scope
 
 
 def route(**state):
@@ -26,10 +27,15 @@ def test_keeps_going_while_targeted_searches_add_questions():
 
 
 def test_gap_queries_skip_ones_already_run():
-    state = {"company": "zemoso", "track": "Backend", "gaps": ["HLD", "LLD"], "retries": 1,
+    state = {"scope": Scope("zemoso", track="Backend"), "gaps": ["HLD", "LLD"], "retries": 1,
              "searched": ["zemoso system design round interview experience"]}
     out = nodes.plan_queries(state)
     assert "zemoso system design round interview experience" not in out["queries"]
     assert "zemoso SDE 2 interview experience system design" in out["queries"]
     assert "zemoso interview experience low level design round" in out["queries"]
     assert out["retries"] == 2
+
+
+def test_non_engineering_gaps_search_by_role_and_round():
+    scope = Scope("amazon", "Product", "Product Manager")
+    assert nodes.gap_queries(scope, "Estimation") == ["amazon Product Manager interview experience guesstimate round"]
