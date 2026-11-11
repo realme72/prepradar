@@ -12,7 +12,7 @@ from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 
 from prepradar import config
-from prepradar.models import SEED_TOPICS, Category, ExtractedQuestion
+from prepradar.models import GENERIC_TAG, SEED_TOPICS, Category, ExtractedQuestion
 from prepradar.store.embeddings import embed
 
 SCHEMA = Path(__file__).resolve().parents[3] / "db" / "schema.sql"
@@ -112,10 +112,10 @@ REDUNDANT_TAGS = {c.lower() for c in Category.__args__} | {
 
 def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool] | None:
     """Map a proposed tag to a topic id. Returns (id, canonical name, created_new),
-    or None for a tag that merely restates a category.
+    or None for a tag that merely restates a category or that the judge calls generic.
 
-    judge(proposed, candidate_names) -> matching name or None; called only for
-    tags whose nearest neighbours are close but not near-identical.
+    judge(proposed, candidate_names) -> matching name, GENERIC_TAG, or None; called
+    for every tag that isn't an exact or near-identical match.
     """
     if name.lower() in REDUNDANT_TAGS:
         return None
@@ -135,11 +135,13 @@ def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool
     same_cat = conn.execute("SELECT id, name FROM topics WHERE category = %s", (category,)).fetchall()
     close = [r for r in near if r["sim"] >= config.TOPIC_CANDIDATE]
     candidates = list({r["id"]: r for r in [*same_cat, *close]}.values())
-    if candidates:
-        same = judge(name, [r["name"] for r in candidates])
-        for r in candidates:
-            if r["name"] == same:
-                return r["id"], r["name"], False
+    # always ask before creating a tag: the judge also rejects generic ones
+    same = judge(name, [r["name"] for r in candidates])
+    if same == GENERIC_TAG:
+        return None
+    for r in candidates:
+        if r["name"] == same:
+            return r["id"], r["name"], False
 
     new_id = conn.execute(
         "INSERT INTO topics (name, category, origin, embedding) VALUES (%s, %s, 'discovered', %s) RETURNING id",
@@ -150,29 +152,77 @@ def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool
 
 # ── questions ────────────────────────────────────────────────────────────────
 
-def add_question(conn, q: ExtractedQuestion, source_id: int, vec: np.ndarray) -> tuple[int, bool]:
-    """Insert q, or link it to an existing near-duplicate. Returns (question id, was_duplicate)."""
-    row = conn.execute(
-        """SELECT id, 1 - (embedding <=> %s) AS sim FROM questions
-           WHERE company = %s ORDER BY embedding <=> %s LIMIT 1""",
+def pick_duplicate(near: list[dict], text: str, specific: bool, judge) -> int | None:
+    """Which existing question (rows of id, text, specific, sim; most similar first) is
+    `text` a duplicate of? Near-identical: the top match. Merely close: ask
+    judge(text, texts), but never pair a vague report ("solve a graph problem") with a
+    specific question: that would count one report as two for the specific one."""
+    if not near:
+        return None
+    if near[0]["sim"] >= config.DEDUPE_THRESHOLD:
+        return near[0]["id"]
+    close = [r for r in near if r["sim"] >= config.DEDUPE_JUDGE and r["specific"] == specific]
+    if not close or judge is None:
+        return None
+    i = judge(text, [r["text"] for r in close])
+    return close[i]["id"] if i is not None else None
+
+
+def add_question(conn, q: ExtractedQuestion, source_id: int, vec: np.ndarray, judge=None) -> tuple[int, bool]:
+    """Insert q, or link it to an existing duplicate. Returns (question id, was_duplicate).
+    judge(new_text, candidate_texts) -> index or None decides the borderline cases."""
+    near = conn.execute(
+        """SELECT id, text, specific, 1 - (embedding <=> %s) AS sim FROM questions
+           WHERE company = %s ORDER BY embedding <=> %s LIMIT 3""",
         (vec, q.company, vec),
-    ).fetchone()
-    if row and row["sim"] >= config.DEDUPE_THRESHOLD:
-        qid, dup = row["id"], True
-    else:
-        qid, dup = conn.execute(
+    ).fetchall()
+    qid = pick_duplicate(near, q.text, q.specific, judge)
+    dup = qid is not None
+    if not dup:
+        qid = conn.execute(
             """INSERT INTO questions (company, text, specific, category, round, role, track,
                                       interview_year, posted_year, embedding)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (q.company, q.text, q.specific, q.category, q.round, q.role, q.track,
              q.interview_year, q.posted_year, vec),
-        ).fetchone()["id"], False
+        ).fetchone()["id"]
     conn.execute(
         "INSERT INTO question_sources (question_id, source_id, original_text) VALUES (%s, %s, %s) "
         "ON CONFLICT DO NOTHING",
         (qid, source_id, q.text),
     )
     return qid, dup
+
+
+def merge_questions(conn, keep: int, drop: int) -> None:
+    """Fold question `drop` into `keep`: its sources and tags move over, then it's deleted."""
+    conn.execute(
+        """INSERT INTO question_sources (question_id, source_id, original_text)
+           SELECT %s, source_id, original_text FROM question_sources WHERE question_id = %s
+           ON CONFLICT DO NOTHING""",
+        (keep, drop),
+    )
+    conn.execute(
+        """INSERT INTO question_topics (question_id, topic_id)
+           SELECT %s, topic_id FROM question_topics WHERE question_id = %s ON CONFLICT DO NOTHING""",
+        (keep, drop),
+    )
+    conn.execute("DELETE FROM questions WHERE id = %s", (drop,))
+
+
+def near_duplicate_pairs(conn, company: str | None = None) -> list[dict]:
+    """Pairs in the judge band (vague with vague, specific with specific), closest first. Pairs above DEDUPE_THRESHOLD can't
+    exist: insert-time dedupe already merged them."""
+    return conn.execute(
+        """SELECT a.id AS a, a.text AS a_text, b.id AS b, b.text AS b_text,
+                  1 - (a.embedding <=> b.embedding) AS sim
+           FROM questions a JOIN questions b
+             ON a.company = b.company AND a.id < b.id AND a.specific = b.specific
+           WHERE (%s::text IS NULL OR a.company = %s)
+             AND 1 - (a.embedding <=> b.embedding) >= %s
+           ORDER BY sim DESC""",
+        (company, company, config.DEDUPE_JUDGE),
+    ).fetchall()
 
 
 def merge_topic(conn, old: str, into: str) -> int:
@@ -192,6 +242,22 @@ def merge_topic(conn, old: str, into: str) -> int:
     return moved
 
 
+def sync_tag_categories(conn) -> int:
+    """A discovered tag takes the category of the first question that used it. After
+    questions are recategorised, move each discovered tag to the category most of its
+    questions are in. Returns how many tags moved."""
+    moved = conn.execute(
+        """UPDATE topics t SET category = m.category
+           FROM (SELECT DISTINCT ON (qt.topic_id) qt.topic_id, q.category
+                 FROM question_topics qt JOIN questions q ON q.id = qt.question_id
+                 GROUP BY qt.topic_id, q.category
+                 ORDER BY qt.topic_id, count(*) DESC, q.category) m
+           WHERE t.id = m.topic_id AND t.origin = 'discovered' AND t.category <> m.category"""
+    ).rowcount
+    conn.commit()
+    return moved
+
+
 def delete_topic(conn, name: str) -> None:
     if not conn.execute("DELETE FROM topics WHERE lower(name) = lower(%s)", (name,)).rowcount:
         raise RuntimeError(f"unknown tag: {name}")
@@ -207,12 +273,24 @@ def tag_question(conn, question_id: int, topic_id: int) -> None:
 
 # ── retrieval ────────────────────────────────────────────────────────────────
 
-QUESTION_VIEW = """
+# A discovered tag stays provisional (stored, offered to the extractor and the judge,
+# but not shown) until write-ups from at least this many sources use it. One-off
+# tags are usually a single page's wording; a tag two candidates needed is real.
+MIN_TAG_SOURCES = 2
+
+TAG_SOURCES = """
+    (SELECT count(DISTINCT s.source_id) FROM question_topics qt
+       JOIN question_sources s ON s.question_id = qt.question_id WHERE qt.topic_id = t.id)
+"""
+
+QUESTION_VIEW = f"""
     SELECT q.id, q.text, q.specific, q.category, q.round, q.track, q.role,
            q.interview_year, q.posted_year,
            (SELECT count(*) FROM question_sources s WHERE s.question_id = q.id) AS times_reported,
            (SELECT array_agg(t.name ORDER BY t.name) FROM question_topics qt
-              JOIN topics t ON t.id = qt.topic_id WHERE qt.question_id = q.id) AS topics,
+              JOIN topics t ON t.id = qt.topic_id
+              WHERE qt.question_id = q.id
+                AND (t.origin = 'seed' OR {TAG_SOURCES} >= {MIN_TAG_SOURCES})) AS topics,
            (SELECT array_agg(src.url) FROM question_sources s
               JOIN sources src ON src.id = s.source_id WHERE s.question_id = q.id) AS urls
 """

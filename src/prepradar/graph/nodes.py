@@ -23,6 +23,7 @@ CORE_CATEGORIES = {
     "Fullstack": ["DSA", "LLD", "HLD", "Backend", "Database", "Frontend", "Behavioral"],
     "DevOps": ["DevOps & Cloud", "Backend", "Behavioral"],
     "ML/AI": ["ML/AI", "DSA", "Behavioral"],
+    "Data": ["Data", "Database", "DSA", "Behavioral"],
 }
 DEFAULT_CORE = CORE_CATEGORIES["Backend"]
 
@@ -43,6 +44,8 @@ GAP_QUERIES = {
     "Messaging & Streaming": ["{company} interview experience kafka"],
     "DevOps & Cloud": ["{company} devops engineer interview experience"],
     "Frontend": ["{company} frontend engineer interview experience"],
+    "Data": ["{company} data engineer interview experience",
+             "{company} data analyst interview experience SQL round"],
     "ML/AI": ["{company} machine learning engineer interview experience"],
     "Behavioral": ["{company} hiring manager round interview experience"],
 }

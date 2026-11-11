@@ -4,7 +4,7 @@ Shared by `prepradar ingest` and the graph's ingest node.
 """
 from dataclasses import dataclass, field
 
-from prepradar.extract.extractor import extract, match_tag
+from prepradar.extract.extractor import extract, match_tag, same_question
 from prepradar.sources.fetch import load_page
 from prepradar.store import db
 from prepradar.store.embeddings import embed
@@ -62,7 +62,7 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
         vecs = embed([q.text for q in qs]) if qs else []
         dups, new_tags, mapped = 0, [], {}
         for q, vec in zip(qs, vecs):
-            qid, dup = db.add_question(conn, q, source_id, vec)
+            qid, dup = db.add_question(conn, q, source_id, vec, same_question)
             dups += dup
             for tag in q.topics:
                 resolved = db.resolve_topic(conn, tag, q.category, match_tag)

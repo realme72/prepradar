@@ -10,7 +10,10 @@
     prepradar guide zemoso --track Backend                 # grounded prep guide from stored data only
     prepradar graph                                        # Mermaid diagram of the graph
     prepradar topics [--discovered] [--merge OLD INTO] [--delete TAG]
-    prepradar forget URL [URL ...]                        # drop a source wrongly accepted, and its questions
+    prepradar topics --review                              # drop generic tags, merge synonyms (LLM)
+    prepradar recategorise [--company X]                   # re-sort questions under current categories
+    prepradar dedupe [--company X]                         # merge near-duplicate questions (LLM)
+    prepradar forget URL [URL ...]                         # drop a source wrongly accepted, and its questions
 """
 import argparse
 from collections import defaultdict
@@ -173,9 +176,12 @@ def cmd_ask(company: str, query: str, k: int, track: str | None, since: int | No
         print_question(q, prefix=f"  {q['score']:.2f}  [{q['category']}] ")
 
 
-def cmd_topics(discovered_only: bool, merge: list[str] | None, delete: str | None) -> None:
+def cmd_topics(discovered_only: bool, merge: list[str] | None, delete: str | None, review: bool) -> None:
     from prepradar.store import db
 
+    if review:
+        cmd_review_tags()
+        return
     with db.connect() as conn:
         if merge:
             print(f"merged '{merge[0]}' into '{merge[1]}' ({db.merge_topic(conn, *merge)} questions moved)")
@@ -185,7 +191,8 @@ def cmd_topics(discovered_only: bool, merge: list[str] | None, delete: str | Non
             print(f"deleted tag '{delete}'")
             return
         rows = conn.execute(
-            """SELECT t.name, t.category, t.origin, count(qt.question_id) AS n
+            f"""SELECT t.name, t.category, t.origin, count(qt.question_id) AS n,
+                       {db.TAG_SOURCES} AS sources
                FROM topics t LEFT JOIN question_topics qt ON qt.topic_id = t.id
                WHERE NOT %s OR t.origin = 'discovered'
                GROUP BY t.id ORDER BY t.category, n DESC, t.name""",
@@ -196,8 +203,80 @@ def cmd_topics(discovered_only: bool, merge: list[str] | None, delete: str | Non
         if r["category"] != cat:
             cat = r["category"]
             print(f"\n{cat}")
-        mark = "  🆕" if r["origin"] == "discovered" else ""
+        mark = ""
+        if r["origin"] == "discovered":
+            mark = "  🆕" if r["sources"] >= db.MIN_TAG_SOURCES else "  (provisional: 1 source)"
         print(f"  {r['n']:3d}  {r['name']}{mark}")
+
+
+def cmd_recategorise(company: str | None) -> None:
+    from prepradar.extract.extractor import recategorise
+    from prepradar.store import db
+
+    batch = 25  # questions per LLM call; small batches keep answers aligned with ids
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT id, text, category FROM questions WHERE %s::text IS NULL OR company = %s ORDER BY id",
+            (company, company),
+        ).fetchall()
+        moves = 0
+        for i in range(0, len(rows), batch):
+            chunk = rows[i:i + batch]
+            new = recategorise(chunk)
+            for r in chunk:
+                cat = new.get(r["id"])
+                if cat and cat != r["category"]:
+                    conn.execute("UPDATE questions SET category = %s WHERE id = %s", (cat, r["id"]))
+                    print(f"  {r['category']:>14} → {cat:<14} {r['text'][:80]}")
+                    moves += 1
+        conn.commit()
+        tags = db.sync_tag_categories(conn)
+    print(f"{moves} of {len(rows)} questions moved; {tags} tags followed their questions")
+
+
+def cmd_dedupe(company: str | None) -> None:
+    from prepradar.extract.extractor import same_question
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        pairs = db.near_duplicate_pairs(conn, company)
+        gone: set[int] = set()
+        merged = 0
+        for p in pairs:
+            if p["a"] in gone or p["b"] in gone:
+                continue  # one side was already merged away
+            if same_question(p["b_text"], [p["a_text"]]) == 0:
+                db.merge_questions(conn, keep=p["a"], drop=p["b"])  # keep the older one
+                gone.add(p["b"])
+                merged += 1
+                print(f"  merged ({p['sim']:.3f})  {p['a_text'][:60]}  ⇐  {p['b_text'][:60]}")
+        conn.commit()
+    print(f"{merged} duplicates merged out of {len(pairs)} close pairs checked")
+
+
+def cmd_review_tags() -> None:
+    from prepradar.extract.extractor import match_tag
+    from prepradar.models import GENERIC_TAG
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        tags = conn.execute(
+            "SELECT name, category FROM topics WHERE origin = 'discovered' ORDER BY name"
+        ).fetchall()
+        dropped = merged = 0
+        for t in tags:
+            others = [r["name"] for r in conn.execute(
+                "SELECT name FROM topics WHERE category = %s AND name <> %s", (t["category"], t["name"]))]
+            verdict = match_tag(t["name"], others)
+            if verdict == GENERIC_TAG:
+                db.delete_topic(conn, t["name"])
+                dropped += 1
+                print(f"  dropped (generic)  {t['name']}")
+            elif verdict:
+                db.merge_topic(conn, t["name"], verdict)
+                merged += 1
+                print(f"  merged  {t['name']} → {verdict}")
+    print(f"{len(tags)} discovered tags reviewed: {dropped} dropped, {merged} merged")
 
 
 def cmd_forget(urls: list[str]) -> None:
@@ -251,6 +330,13 @@ def main() -> None:
     p.add_argument("--discovered", action="store_true", help="only tags the system added")
     p.add_argument("--merge", nargs=2, metavar=("OLD", "INTO"), help="fold tag OLD into tag INTO")
     p.add_argument("--delete", metavar="TAG", help="remove a tag from the vocabulary and all questions")
+    p.add_argument("--review", action="store_true", help="LLM-review discovered tags: drop generic, merge synonyms")
+
+    p = sub.add_parser("recategorise", help="re-sort stored questions under the current category rules")
+    p.add_argument("--company")
+
+    p = sub.add_parser("dedupe", help="merge stored near-duplicate questions (LLM-judged)")
+    p.add_argument("--company")
 
     p = sub.add_parser("forget", help="drop a source wrongly accepted as firsthand, and its questions")
     p.add_argument("urls", nargs="+")
@@ -280,7 +366,11 @@ def run(args: argparse.Namespace) -> None:
     elif args.cmd == "graph":
         cmd_graph()
     elif args.cmd == "topics":
-        cmd_topics(args.discovered, args.merge, args.delete)
+        cmd_topics(args.discovered, args.merge, args.delete, args.review)
+    elif args.cmd == "recategorise":
+        cmd_recategorise(args.company)
+    elif args.cmd == "dedupe":
+        cmd_dedupe(args.company)
     elif args.cmd == "forget":
         cmd_forget(args.urls)
 

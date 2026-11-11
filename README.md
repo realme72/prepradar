@@ -39,6 +39,10 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run prepradar report zemoso --track Backend --since 2023
     uv run prepradar ask zemoso "caching and performance"
     uv run prepradar topics --discovered
+    uv run prepradar topics --review                 # drop generic tags, merge synonyms
+    uv run prepradar recategorise                    # re-sort stored questions after rule changes
+    uv run prepradar dedupe                          # merge near-duplicate questions
+    uv run prepradar forget URL                      # remove a source wrongly accepted as firsthand
 
 ## Web UI (local)
 
@@ -58,6 +62,6 @@ for a new company with its progress streamed live.
 - [x] LangGraph pipeline: cache check, coverage-gap retry loop (`prepradar run`)
 - [x] Grounded prep guide: facts computed in code, every claim cites Q#/S#, invalid citations removed
 - [x] FastAPI backend + React UI: question browser, semantic search, guide view, live run progress
-- [ ] Known gaps in docs/decisions.md (near-duplicates, tag sprawl, stricter firsthand check)
+- [x] Stricter firsthand check, LLM-judged near-duplicates, provisional tags, Data category
 
 See docs/decisions.md for decided and open questions.

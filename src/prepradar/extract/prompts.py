@@ -21,6 +21,43 @@ pick page_kind:
 - news_or_other: anything else.
 """
 
+# Shared by extraction and `prepradar recategorize`, so both sort questions the same way.
+CATEGORY_RULES = """Categories (pick the single best):
+  DSA        algorithmic/coding problems (arrays, strings, trees, DP...).
+  LLD        object/class design, OOP concepts, design patterns, SOLID, "design a parking lot".
+  HLD        system design at scale: architecture, scaling, distributed systems, traffic spikes.
+  Backend    language and framework internals (Java, Spring, Node), APIs, auth, concurrency,
+             caching, microservices, troubleshooting slow/failing/memory-hungry services,
+             OS/networking.
+  Database   SQL queries, DBMS concepts, normalization, indexing, transactions, schema
+             design, SQL vs NoSQL. Database questions go here; analysing business
+             data with SQL (metrics, cohorts, streaks) goes to Data.
+  Messaging & Streaming
+             Kafka, RabbitMQ/SQS, message queues, pub/sub, event streaming.
+  DevOps & Cloud
+             CI/CD, deployment pipelines, Git, Docker/Kubernetes, cloud services, monitoring.
+  Frontend   JavaScript/TypeScript language (closures, hoisting, event loop, type coercion,
+             "what will this print"), debounce/throttle, React, CSS/HTML, browser behaviour
+             (DOM, storage, CORS, rendering, what happens when you type a URL), web performance.
+  Data       data analyst/engineer work: analytics SQL on business data (rolling metrics,
+             streaks, cohorts, retention), ETL and data pipelines, Spark/PySpark, data
+             warehousing, product metric and case questions.
+  ML/AI      machine learning, data science, GenAI/LLMs.
+  Behavioral past projects, conflict, pressure, motivation, HR and salary.
+  Other      aptitude, puzzles, anything else.
+Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
+"Can a functional interface extend another interface?" -> Backend (Java).
+"An API is slow / using too much memory, how do you debug it?" -> Backend
+(Production Troubleshooting).
+"Handle a sudden 10x traffic spike" -> HLD (Scalability).
+"What is normalization? Convert a table to 3NF" -> Database (Normalization).
+"Find the kth highest salary from an employee table" -> Database (SQL).
+"What tools do you use in your deployment pipeline?" -> DevOps & Cloud (CI/CD).
+"Explain closures with an example" / "Implement debounce" -> Frontend (JavaScript).
+"Find each user's longest streak of active days" -> Data (Analytics SQL).
+"Handle nulls and group-by aggregation in PySpark" -> Data (Spark).
+"""
+
 # Step 2: extraction, run only on pages step 1 accepted.
 SYSTEM = """You extract interview questions from a candidate's own report of interviewing at {company}.
 
@@ -41,37 +78,15 @@ Extraction rules:
 - Never invent questions.
 - Never include people's names (candidates, interviewers, post authors) in question text.
 
-Categories (pick the single best):
-  DSA        algorithmic/coding problems (arrays, strings, trees, DP...).
-  LLD        object/class design, OOP concepts, design patterns, SOLID, "design a parking lot".
-  HLD        system design at scale: architecture, scaling, distributed systems, traffic spikes.
-  Backend    language and framework internals (Java, Spring, Node), APIs, auth, concurrency,
-             caching, microservices, troubleshooting slow/failing/memory-hungry services,
-             OS/networking.
-  Database   SQL queries, DBMS concepts, normalization, indexing, transactions, schema
-             design, SQL vs NoSQL. Any question mainly about a database goes here.
-  Messaging & Streaming
-             Kafka, RabbitMQ/SQS, message queues, pub/sub, event streaming.
-  DevOps & Cloud
-             CI/CD, deployment pipelines, Docker/Kubernetes, cloud services, monitoring.
-  Frontend   JS/TS, React, CSS/HTML, browser behaviour.
-  ML/AI      machine learning, data science, GenAI/LLMs.
-  Behavioral past projects, conflict, pressure, motivation, HR and salary.
-  Other      aptitude, puzzles, anything else.
-Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
-"Can a functional interface extend another interface?" -> Backend (Java).
-"An API is slow / using too much memory, how do you debug it?" -> Backend
-(Production Troubleshooting).
-"Handle a sudden 10x traffic spike" -> HLD (Scalability).
-"What is normalization? Convert a table to 3NF" -> Database (Normalization).
-"Find the kth highest salary from an employee table" -> Database (SQL).
-"What tools do you use in your deployment pipeline?" -> DevOps & Cloud (CI/CD).
-
+{categories}
 Topic tags: give 1-3 per question. Existing tags, grouped by category:
 {vocabulary}
 Reuse an existing tag whenever one fits, spelled exactly as listed. Only if none fits,
-propose a new short Title Case tag (1-3 words) naming the general topic, not the
-specific question: "Rate Limiting", not "How To Rate Limit Login API".
+propose a new short Title Case tag (1-3 words) naming a concept someone could study,
+not the specific problem: "Rate Limiting", not "How To Rate Limit Login API";
+"Consistency" or "Payment Systems", not "Wallet System". Never propose tags that only
+say what kind of question it is ("Algorithm Knowledge", "Technical Questions",
+"Interview Preparation", "Low-Level Design"); fewer tags is fine.
 
 track = the role family the candidate interviewed for (Backend, Frontend, Fullstack,
 ML/AI, ...). Use General only if the role is unknown.

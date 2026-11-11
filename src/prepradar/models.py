@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 Category = Literal[
     "DSA", "LLD", "HLD", "Backend", "Database", "Messaging & Streaming", "DevOps & Cloud",
-    "Frontend", "ML/AI", "Behavioral", "Other",
+    "Frontend", "Data", "ML/AI", "Behavioral", "Other",
 ]
 Round = Literal["OA", "Technical", "Managerial", "HR", "Unknown"]
 # Role family the candidate interviewed for; retrieval filters on this.
@@ -34,6 +34,7 @@ SEED_TOPICS: dict[str, str] = {
     **dict.fromkeys(["Kafka", "Message Queues", "Event Streaming"], "Messaging & Streaming"),
     **dict.fromkeys(["CI/CD", "Docker/Kubernetes", "Cloud", "Monitoring/Observability"], "DevOps & Cloud"),
     **dict.fromkeys(["JavaScript", "TypeScript", "React", "CSS/HTML", "Browser/Performance"], "Frontend"),
+    **dict.fromkeys(["Analytics SQL", "ETL/Data Pipelines", "Spark", "Data Warehousing", "Product Metrics"], "Data"),
     **dict.fromkeys(["Machine Learning", "GenAI/LLM"], "ML/AI"),
     **dict.fromkeys(["Project Discussion", "HR"], "Behavioral"),
     "Aptitude": "Other",
@@ -95,6 +96,10 @@ class ExtractedQuestion(QuestionDraft):
     company: str
     source_url: HttpUrl
     posted_year: int | None = None  # from page metadata, set by our code
+
+
+# A tag judge's verdict for a proposed tag that names no studyable concept.
+GENERIC_TAG = "<generic>"
 
 
 class Page(BaseModel):

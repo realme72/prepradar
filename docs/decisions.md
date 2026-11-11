@@ -34,12 +34,23 @@
 - Result: Amazon went from 75 questions (48 from one question bank, LLD 1, HLD 1) to 96
   from 21 write-ups (LLD 13, HLD 17).
 
-## Known gaps (to do after the UI)
-- Near-duplicate questions below the 0.88 threshold ("What are the SOLID principles?" vs
-  "What are design patterns and SOLID principles?"): shortlist + LLM judge, as for tags.
-- Tag sprawl on bigger companies (28 new tags for Razorpay): tags naming the specific design
-  problem ("Wallet System") instead of a concept. Idea: provisional tags that only become
-  visible once used by 2+ sources.
-- Some frontend questions get odd categories/tags (CORS, Closures under Other; Type
-  Coercion under DSA), seen in the Razorpay re-run.
-- No Data category: data-analyst / data-engineering questions land in Other.
+## Fixed: the post-UI known gaps
+- Near-duplicates: pairs between DEDUPE_JUDGE (0.80) and DEDUPE_THRESHOLD (0.88) go to an
+  LLM judge; a vague report is never judged the same as a specific question. The score
+  alone can't decide ("debounce function" = "what is debounce" at 0.856, but "debug a
+  failing API" != "debug a slow API" at 0.863). gpt-4o-mini flip-flopped on this, so the
+  judge uses JUDGE_MODEL (gpt-5.4-mini). `prepradar dedupe` cleans stored data: 8 merged
+  out of 48 close pairs.
+- Tag sprawl: the tag judge can now call a tag generic (dropped), and is consulted for
+  every new tag. Discovered tags stay provisional (stored, not shown) until 2+ sources
+  use them. `prepradar topics --review` cleaned 88 discovered tags: 10 dropped, 9
+  merged, 30 shown.
+- Categories: new Data category (analytics SQL, pipelines, Spark); Frontend now names JS
+  language and browser topics. `prepradar recategorise` re-sorted stored questions
+  (Other: 39 -> 12) and tags follow their questions' category.
+
+## Known gaps
+- The tag judge merges narrower tags into broader ones (DENSE_RANK -> SQL, Cycle
+  Detection -> Graphs) despite its instructions. Fine for sprawl; loses some detail.
+- A few vague tags that 2+ sources used still show ("Operational Concerns", "Reflection").
+- Each run reads ~12 write-ups per search round; big companies need several refresh runs.
