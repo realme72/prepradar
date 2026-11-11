@@ -96,3 +96,8 @@
 - **Long pages are read in chunks.** Question extraction used to stop at 15k characters; it now reads up to 4 overlapping 15k windows. The experience call reads up to 60k at once, so a story isn't split.
 - **Page text is still not stored**, because it would keep people's names. `prepradar experiences` re-fetches sources to backfill, and pages that can't be re-fetched are skipped.
 - **Token log.** Every OpenAI call goes through `parse()`, which writes the token counts to `llm_usage`. `prepradar usage` sums them per model and purpose. Cost in dollars is on the OpenAI dashboard.
+
+## Exact DSA questions and subtopics (2026-11-11)
+
+- **"Solve problems on arrays and hashmaps" was counted as a question.** The specific/vague rule allowed short concept questions, and the model stretched that to cover topic-only lines. `DSA_SPECIFIC_RULE` now asks for something a candidate can look up and practise: a named problem, a statement of what to compute, or a concrete concept question. The rule is shared by extraction and `prepradar respecify`, which re-judges stored DSA questions in both directions. A first, stricter wording also demoted named problems ("Currency Converter") and concept questions ("DFS vs BFS"), so the examples now cover those. Result: 112 specific, 39 vague.
+- **Subtopics** come from the tags of the questions in the selected category, most common first. The list is sorted by how many candidates reported each question. Vague reports follow the selected category.

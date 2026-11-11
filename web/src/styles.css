@@ -97,6 +97,12 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 .tab:hover { border-color: var(--magenta); color: var(--magenta); }
 .tab.active { background: rgba(182, 156, 255, 0.16); border-color: var(--magenta); color: #fff; font-weight: 700; }
 .tab .count { opacity: 0.7; margin-left: 4px; }
+/* subtopic row: smaller, cyan, so it reads as a level below the categories */
+.subtabs { margin-top: -6px; padding-left: 12px; border-left: 1px solid rgba(0, 240, 255, 0.3); }
+.subtabs .tab { font-size: 0.72rem; padding: 4px 10px; clip-path: none; border-radius: 999px; }
+.subtabs .tab:hover { border-color: var(--cyan); color: var(--cyan); }
+.subtabs .tab.active { background: var(--accent-soft); border-color: var(--cyan); color: var(--cyan); }
+.list-note { font-family: var(--mono); font-size: 0.72rem; margin: -6px 0 10px; }
 
 .list { display: flex; flex-direction: column; gap: 10px; }
 .card {

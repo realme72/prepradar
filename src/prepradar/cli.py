@@ -234,6 +234,33 @@ def cmd_recategorise(company: str | None) -> None:
     print(f"{moves} of {len(rows)} questions moved; {tags} tags followed their questions")
 
 
+def cmd_respecify(company: str | None) -> None:
+    """Re-judge every stored DSA question under DSA_SPECIFIC_RULE, in both directions:
+    "solve array and hashmap problems" becomes vague, a named problem becomes specific."""
+    from prepradar.extract.extractor import vague_dsa
+    from prepradar.store import db
+
+    batch = 25
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT id, text, specific FROM questions WHERE category = 'DSA'
+               AND (%s::text IS NULL OR company = %s) ORDER BY id""",
+            (company, company),
+        ).fetchall()
+        vague: set[int] = set()
+        for i in range(0, len(rows), batch):
+            vague |= vague_dsa(rows[i:i + batch])
+        changed = 0
+        for r in rows:
+            specific = r["id"] not in vague
+            if specific != r["specific"]:
+                conn.execute("UPDATE questions SET specific = %s WHERE id = %s", (specific, r["id"]))
+                print(f"  {'specific' if specific else 'vague':>8}: {r['text'][:100]}")
+                changed += 1
+        conn.commit()
+    print(f"{len(rows)} DSA questions: {len(rows) - len(vague)} specific, {len(vague)} vague ({changed} changed)")
+
+
 def cmd_reposition() -> None:
     """Fill function/position from the role titles candidates wrote (and the old
     engineering-only track), for questions stored before roles.py existed or after
@@ -467,6 +494,9 @@ def main() -> None:
     p = sub.add_parser("recategorise", help="re-sort stored questions under the current category rules")
     p.add_argument("--company")
 
+    p = sub.add_parser("respecify", help="re-judge which DSA questions name an actual problem (others go to vague reports)")
+    p.add_argument("--company")
+
     sub.add_parser("reposition", help="fill function/position on stored questions from their role titles")
 
     p = sub.add_parser("dedupe", help="merge stored near-duplicate questions (LLM-judged)")
@@ -513,6 +543,8 @@ def run(args: argparse.Namespace) -> None:
         cmd_topics(args.discovered, args.merge, args.delete, args.review)
     elif args.cmd == "recategorise":
         cmd_recategorise(args.company)
+    elif args.cmd == "respecify":
+        cmd_respecify(args.company)
     elif args.cmd == "reposition":
         cmd_reposition()
     elif args.cmd == "dedupe":

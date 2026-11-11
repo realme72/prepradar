@@ -90,6 +90,20 @@ Examples: "Implement OOP concepts: encapsulation, inheritance..." -> LLD.
 """
 
 # Step 2: extraction, run only on pages step 1 accepted.
+DSA_SPECIFIC_RULE = """  For a coding (DSA) question, specific means a candidate can look up and practise the
+  exact thing asked:
+  - a named problem, even briefly ("Two Sum", "LRU cache", "Currency Converter using
+    graphs", "subsets and knapsack");
+  - a statement of what to compute ("find the longest substring without repeating
+    characters", "recommend mutual friends ranked by shared connections");
+  - a concrete concept question ("difference between DFS and BFS", "implement a trie",
+    "what is the sliding window technique?").
+  NOT specific: naming only a data structure, technique, topic or difficulty as the kind
+  of problem that was asked: "solve problems on arrays and hashmaps", "a greedy problem,
+  brute force then optimise", "string manipulation tasks", "a medium DP question", "solve
+  a graph problem", "explain the complexity of your solution".
+"""
+
 ROLE_RULES = """function and position = who the interview was for. Pick the function, then the closest
 position on its ladder; Unknown if the write-up doesn't say or none fits:
 {ladders}
@@ -123,7 +137,7 @@ Extraction rules:
   and concrete behavioral prompts ("Describe a production bug you fixed").
   specific=false ONLY when the report names an area without the actual question:
   "asked Java questions", "solved two medium problems", "low-medium DSA questions".
-- Never invent questions.
+{dsa_rule}- Never invent questions.
 - Never include people's names (candidates, interviewers, post authors) in question text.
 
 {categories}

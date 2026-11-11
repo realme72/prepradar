@@ -5,7 +5,8 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from prepradar import config
-from prepradar.extract.prompts import (CATEGORY_RULES, CLASSIFY, EXPERIENCES, SYSTEM, USER, format_ladders,
+from prepradar.extract.prompts import (CATEGORY_RULES, CLASSIFY, DSA_SPECIFIC_RULE, EXPERIENCES, SYSTEM, USER,
+                                       format_ladders,
                                        format_vocabulary)
 from prepradar.models import (GENERIC_TAG, Category, ExperienceDraft, ExperienceResult, ExtractedQuestion, Function,
                               ExtractionResult, Page, PageCheck)
@@ -160,6 +161,7 @@ def extract_questions(page: Page, company: str, vocabulary: dict[str, str],
     """Questions from every chunk of the page, from `first_chunk` on (the backfill
     passes 1 to read only what the old 15k-character cut-off missed)."""
     instructions = SYSTEM.format(company=company, categories=CATEGORY_RULES, ladders=format_ladders(),
+                                 dsa_rule=DSA_SPECIFIC_RULE,
                                  vocabulary=format_vocabulary(vocabulary))
     posted_year = int(page.published[:4]) if page.published else None
     out = []
@@ -248,6 +250,28 @@ def recategorise(questions: list[dict]) -> dict[int, str]:
     )
     ids = {q["id"] for q in questions}
     return {r.id: r.category for r in resp.output_parsed.questions if r.id in ids}
+
+
+class Vague(BaseModel):
+    vague_ids: list[int] = Field(description="Ids of questions that name no identifiable problem")
+
+
+def vague_dsa(questions: list[dict]) -> set[int]:
+    """Ids among stored DSA questions (id, text) that only name a topic or technique.
+    Judges in both directions, so a vague question is any id returned and a specific
+    one any id left out."""
+    listing = "\n".join(f"{q['id']} {q['text']}" for q in questions)
+    resp = parse(
+        "respecify",
+        model=config.JUDGE_MODEL,
+        reasoning=config.JUDGE_REASONING,
+        instructions="Each line is: id question. Return the ids of questions that are NOT specific.\n"
+                     + DSA_SPECIFIC_RULE,
+        input=listing,
+        text_format=Vague,
+    )
+    ids = {q["id"] for q in questions}
+    return {i for i in resp.output_parsed.vague_ids if i in ids}
 
 
 # Shared with the extraction prompt: a level is only ever read off the title.

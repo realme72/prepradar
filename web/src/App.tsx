@@ -20,6 +20,7 @@ export default function App() {
   // single setScope() call changes several at once (see Filters' pickFunction).
   const [scope, setScope] = useState<Scope>({ function: "Engineering", position: "", track: "Backend", since: null });
   const [category, setCategory] = useState<string | null>(null);
+  const [topic, setTopic] = useState<string | null>(null); // subtopic within the category
   const [showVague, setShowVague] = useState(false);
   const [view, setView] = useState<View>("questions");
   const [query, setQuery] = useState("");
@@ -60,19 +61,45 @@ export default function App() {
     return c;
   }, [specific]);
   const empty = questions.data?.length === 0;
-  const visible = useMemo(
-    () =>
-      specific
-        .filter((q) => category === null || q.category === category)
-        .sort((a, b) => b.times_reported - a.times_reported),
+  const inCategory = useMemo(
+    () => specific.filter((q) => category === null || q.category === category),
     [specific, category],
   );
+  // Subtopics come from the tags of the questions in the chosen category, most
+  // common first: under DSA that's Arrays, Graphs, Dynamic Programming, ...
+  const topicCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const q of inCategory) for (const t of q.topics ?? []) c[t] = (c[t] ?? 0) + 1;
+    return c;
+  }, [inCategory]);
+  const topicOrder = useMemo(
+    () => Object.keys(topicCounts).sort((a, b) => topicCounts[b] - topicCounts[a] || a.localeCompare(b)),
+    [topicCounts],
+  );
+  const visible = useMemo(
+    () =>
+      inCategory
+        .filter((q) => topic === null || (q.topics ?? []).includes(topic))
+        .sort((a, b) => b.times_reported - a.times_reported),
+    [inCategory, topic],
+  );
+
+  const vagueShown = useMemo(
+    () => vague.filter((q) => category === null || q.category === category),
+    [vague, category],
+  );
+
+  // A new category makes the old subtopic meaningless, so both change in one handler.
+  function pickCategory(c: string | null) {
+    setCategory(c);
+    setTopic(null);
+  }
 
   // Reset dependent state in the event handler that changes company, not in an
   // effect: it's a direct consequence of the user's action.
   function pickCompany(c: string) {
     setCompany(c);
-    setCategory(null);
+    pickCategory(null);
     setQuery("");
   }
 
@@ -99,7 +126,7 @@ export default function App() {
         onCompany={pickCompany}
         onScope={(s) => {
           setScope(s);
-          setCategory(null);
+          pickCategory(null);
         }}
       />
 
@@ -155,22 +182,38 @@ export default function App() {
                   counts={counts}
                   order={meta.data?.categories ?? []}
                   active={category}
-                  onSelect={setCategory}
+                  onSelect={pickCategory}
                 />
+                {category && topicOrder.length > 1 && (
+                  <CategoryTabs
+                    counts={topicCounts}
+                    order={topicOrder}
+                    active={topic}
+                    onSelect={setTopic}
+                    total={inCategory.length}
+                    label={`${category} subtopics`}
+                    className="tabs subtabs"
+                  />
+                )}
+                {category && (
+                  <p className="list-note muted">
+                    {visible.length} {topic ?? category} questions, most reported first
+                  </p>
+                )}
                 <section className="list">
                   {visible.map((q) => (
                     <QuestionCard key={q.id} question={q} />
                   ))}
                 </section>
 
-                {vague.length > 0 && (
+                {vagueShown.length > 0 && (
                   <section className="vague">
                     <button className="link" onClick={() => setShowVague((v) => !v)}>
-                      {showVague ? "Hide" : "Show"} {vague.length} vague reports
+                      {showVague ? "Hide" : "Show"} {vagueShown.length} vague reports{category ? ` in ${category}` : ""}
                     </button>
                     {showVague && (
                       <ul>
-                        {vague.map((q) => (
+                        {vagueShown.map((q) => (
                           <li key={q.id}>{q.text} <span className="muted">[{q.category}]</span></li>
                         ))}
                       </ul>
