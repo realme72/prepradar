@@ -42,7 +42,7 @@ export function Filters({ companies, company, scope, ladders, tracks, counts, on
           <option value="" disabled>Pick a company</option>
           {companies.map((c) => (
             <option key={c.company} value={c.company}>
-              {c.company} ({c.questions} questions)
+              {c.company} · {c.questions}
             </option>
           ))}
         </select>
