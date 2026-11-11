@@ -2,8 +2,14 @@ import { useMemo, useState } from "react";
 import { apiUrl, type Company, type Meta, type Question } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { Filters } from "./components/Filters";
+import { GuideView } from "./components/GuideView";
 import { QuestionCard } from "./components/QuestionCard";
+import { RunPanel } from "./components/RunPanel";
+import { SearchBox } from "./components/SearchBox";
 import { useApi } from "./hooks/useApi";
+import { useDebounce } from "./hooks/useDebounce";
+
+type View = "questions" | "guide";
 
 export default function App() {
   // State: values that, when changed, make React re-render this component.
@@ -12,12 +18,29 @@ export default function App() {
   const [track, setTrack] = useState("Backend");
   const [category, setCategory] = useState<string | null>(null);
   const [showVague, setShowVague] = useState(false);
+  const [view, setView] = useState<View>("questions");
+  const [query, setQuery] = useState("");
+  // Bumped after a run so every fetch below reloads with the new data.
+  const [version, setVersion] = useState(0);
+
+  // `query` changes on every keystroke (the input needs that); the search waits
+  // until typing pauses.
+  const settledQuery = useDebounce(query.trim(), 300);
+  const searching = settledQuery.length >= 2;
 
   const meta = useApi<Meta>(apiUrl("/meta"));
-  const companies = useApi<Company[]>(apiUrl("/companies"));
+  const companies = useApi<Company[]>(apiUrl("/companies"), version);
   // The URL is derived from state, so picking a company/track re-runs the fetch.
   const questions = useApi<Question[]>(
     company ? apiUrl(`/companies/${company}/questions`, { track }) : null,
+    version,
+  );
+  const results = useApi<Question[]>(
+    company && searching ? apiUrl(`/companies/${company}/search`, { q: settledQuery, track, k: 15 }) : null,
+  );
+  const guide = useApi<{ markdown: string }>(
+    company && view === "guide" ? apiUrl(`/companies/${company}/guide`, { track }) : null,
+    version,
   );
 
   // Derived data: computed from state during render, never stored in state itself.
@@ -37,11 +60,18 @@ export default function App() {
     [specific, category],
   );
 
-  // Reset the tab in the event handler that changes company, not in an effect:
-  // it's a direct consequence of the user's action.
+  // Reset dependent state in the event handler that changes company, not in an
+  // effect: it's a direct consequence of the user's action.
   function pickCompany(c: string) {
     setCompany(c);
     setCategory(null);
+    setQuery("");
+  }
+
+  // Called by RunPanel when a run finishes: show that company and refetch.
+  function runFinished(c: string) {
+    pickCompany(c);
+    setVersion((v) => v + 1);
   }
 
   return (
@@ -63,37 +93,77 @@ export default function App() {
         }}
       />
 
+      <details className="run-box">
+        <summary>{company ? `Refresh ${company} or add a company` : "Add a company"}</summary>
+        {/* key: a new company resets the panel's local state (log, typed name) */}
+        <RunPanel key={company ?? ""} initialCompany={company ?? ""} track={track} onFinished={runFinished} />
+      </details>
+
       {!company && <p className="empty">Pick a company to see its questions.</p>}
-      {questions.loading && <p className="muted">Loading…</p>}
-      {questions.error && <p className="error">{questions.error}</p>}
 
-      {company && questions.data && (
+      {company && (
+        <nav className="views">
+          <button className={view === "questions" ? "view active" : "view"} onClick={() => setView("questions")}>
+            Questions
+          </button>
+          <button className={view === "guide" ? "view active" : "view"} onClick={() => setView("guide")}>
+            Prep guide
+          </button>
+        </nav>
+      )}
+
+      {company && view === "guide" && (
         <>
-          <CategoryTabs
-            counts={counts}
-            order={meta.data?.categories ?? []}
-            active={category}
-            onSelect={setCategory}
-          />
-          <section className="list">
-            {visible.map((q) => (
-              <QuestionCard key={q.id} question={q} />
-            ))}
-          </section>
+          {guide.loading && <p className="muted">Loading…</p>}
+          {guide.error && <p className="muted">{guide.error}</p>}
+          {guide.data && <GuideView markdown={guide.data.markdown} />}
+        </>
+      )}
 
-          {vague.length > 0 && (
-            <section className="vague">
-              <button className="link" onClick={() => setShowVague((v) => !v)}>
-                {showVague ? "Hide" : "Show"} {vague.length} vague reports
-              </button>
-              {showVague && (
-                <ul>
-                  {vague.map((q) => (
-                    <li key={q.id}>{q.text} <span className="muted">[{q.category}]</span></li>
-                  ))}
-                </ul>
-              )}
+      {company && view === "questions" && (
+        <>
+          <SearchBox value={query} onChange={setQuery} />
+          {questions.loading && <p className="muted">Loading…</p>}
+          {questions.error && <p className="error">{questions.error}</p>}
+
+          {searching ? (
+            <section className="list">
+              {results.loading && <p className="muted">Searching…</p>}
+              {results.error && <p className="error">{results.error}</p>}
+              {results.data?.length === 0 && <p className="empty">No close matches.</p>}
+              {results.data?.map((q) => <QuestionCard key={q.id} question={q} />)}
             </section>
+          ) : (
+            questions.data && (
+              <>
+                <CategoryTabs
+                  counts={counts}
+                  order={meta.data?.categories ?? []}
+                  active={category}
+                  onSelect={setCategory}
+                />
+                <section className="list">
+                  {visible.map((q) => (
+                    <QuestionCard key={q.id} question={q} />
+                  ))}
+                </section>
+
+                {vague.length > 0 && (
+                  <section className="vague">
+                    <button className="link" onClick={() => setShowVague((v) => !v)}>
+                      {showVague ? "Hide" : "Show"} {vague.length} vague reports
+                    </button>
+                    {showVague && (
+                      <ul>
+                        {vague.map((q) => (
+                          <li key={q.id}>{q.text} <span className="muted">[{q.category}]</span></li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
+              </>
+            )
           )}
         </>
       )}

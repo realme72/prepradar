@@ -3,14 +3,15 @@ import { useEffect, useState } from "react";
 // A custom hook: a function whose name starts with "use" and that calls other hooks.
 // It packages "fetch this URL and track loading/error" so every component can reuse it.
 //
-// Pass null to fetch nothing (e.g. no company picked yet).
-export function useApi<T>(url: string | null) {
+// Pass null to fetch nothing (e.g. no company picked yet). Bump `version` to
+// refetch the same URL (e.g. after a run added new questions).
+export function useApi<T>(url: string | null, version = 0) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // useEffect runs after React draws the screen, and again whenever a value in the
-  // dependency array ([url]) changes. Fetching belongs here, not in the component
+  // dependency array ([url, version]) changes. Fetching belongs here, not in the component
   // body, because the body re-runs on every render.
   useEffect(() => {
     if (!url) {
@@ -39,7 +40,7 @@ export function useApi<T>(url: string | null) {
       });
     // The cleanup function runs before the next effect, and when the component unmounts.
     return () => controller.abort();
-  }, [url]);
+  }, [url, version]);
 
   return { data, error, loading };
 }

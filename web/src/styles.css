@@ -60,3 +60,39 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .vague { margin-top: 24px; font-size: 0.9rem; }
 .vague ul { color: var(--muted); }
 .link { font: inherit; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
+
+input[type="search"], .run-form input:not([type]) {
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+}
+.search { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+.search input { flex: 1; min-width: 0; }
+
+.run-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 20px; }
+.run-box summary { cursor: pointer; font-size: 0.9rem; color: var(--muted); }
+.run { margin-top: 12px; }
+.run-form { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.run-form input:not([type]) { min-width: 220px; }
+.check { display: flex; gap: 6px; align-items: center; font-size: 0.85rem; color: var(--muted); }
+.primary {
+  font: inherit; font-size: 0.9rem; color: #fff; background: var(--accent);
+  border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer;
+}
+.primary:disabled { opacity: 0.5; cursor: default; }
+.run-log { font: 0.8rem/1.5 ui-monospace, Menlo, monospace; margin: 12px 0 0; padding-left: 28px; max-height: 260px; overflow-y: auto; }
+.run-log .node { color: var(--accent); }
+
+.views { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.view {
+  font: inherit; font-size: 0.9rem; background: none; border: none; color: var(--muted);
+  padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.view.active { color: var(--text); border-bottom-color: var(--accent); }
+
+.guide { line-height: 1.55; overflow-wrap: anywhere; }
+.guide h1 { font-size: 1.4rem; }
+.guide h2 { font-size: 1.1rem; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.guide a { color: var(--accent); }
+.guide a.cite { text-decoration: none; margin: 0 1px; background: var(--accent-soft); border-radius: 4px; padding: 0 3px; font-size: 0.85em; }
+.cite-target { scroll-margin-top: 24px; }
+.cite-target:target { background: var(--accent-soft); }

@@ -45,6 +45,10 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run uvicorn prepradar.api:app --port 8010     # API
     cd web && npm install && npm run dev             # http://localhost:5173
 
+Browse questions by category, search them by meaning, read the prep guide (click a
+`Q#` to jump to the question, an `S#` to open the write-up), and run the pipeline
+for a new company with its progress streamed live.
+
 ## Status: in progress
 
 - [x] Project scaffold, draft schema, decisions log
@@ -53,6 +57,7 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
 - [x] Search providers (Tavily, falls through to Serper/Brave on quota)
 - [x] LangGraph pipeline: cache check, coverage-gap retry loop (`prepradar run`)
 - [x] Grounded prep guide: facts computed in code, every claim cites Q#/S#, invalid citations removed
-- [ ] FastAPI backend + React UI
+- [x] FastAPI backend + React UI: question browser, semantic search, guide view, live run progress
+- [ ] Known gaps in docs/decisions.md (near-duplicates, tag sprawl, stricter firsthand check)
 
 See docs/decisions.md for decided and open questions.
