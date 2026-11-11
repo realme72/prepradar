@@ -101,3 +101,10 @@
 
 - **"Solve problems on arrays and hashmaps" was counted as a question.** The specific/vague rule allowed short concept questions, and the model stretched that to cover topic-only lines. `DSA_SPECIFIC_RULE` now asks for something a candidate can look up and practise: a named problem, a statement of what to compute, or a concrete concept question. The rule is shared by extraction and `prepradar respecify`, which re-judges stored DSA questions in both directions. A first, stricter wording also demoted named problems ("Currency Converter") and concept questions ("DFS vs BFS"), so the examples now cover those. Result: 112 specific, 39 vague.
 - **Subtopics** come from the tags of the questions in the selected category, most common first. The list is sorted by how many candidates reported each question. Vague reports follow the selected category.
+
+## Free live site and pack unlocks (2026-11-11)
+
+- **Static site plus one Cloudflare Worker, at no cost.** The React app reads exported JSON (`prepradar export`); `static.ts` answers the same URLs FastAPI does, so the components didn't change. Search runs the same bge-small model in the browser. transformers.js loads from a pinned jsDelivr URL because its 25MB WebAssembly file is over Cloudflare's per-file limit.
+- **Packs unlock content on the site; there's no PDF** (the user's call). Locked stories and full guides are left out of the public JSON entirely. Only the Worker serves them, from KV, to holders of an HMAC-signed token issued after it verifies the payment with Razorpay. Tokens need no database.
+- **Prices live in `packs/catalog.json`**, bundled into the Worker, never sent by the browser. **Recovery uses the Razorpay payment ID**, which only the buyer gets, so access works on a new device without accounts or email.
+- A function with no pack keeps all of its content free.

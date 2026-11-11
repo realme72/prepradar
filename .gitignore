@@ -9,3 +9,10 @@ reports/
 node_modules/
 web/dist/
 *.tsbuildinfo
+
+# Paid content and generated site data: never in the public repo
+packs/private/
+web/public/data/
+# Worker secrets for local dev
+.dev.vars
+.wrangler/

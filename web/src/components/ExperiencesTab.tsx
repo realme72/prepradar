@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import type { Experience } from "../api";
 import { useApi } from "../hooks/useApi";
+import { PackOffer } from "./PackOffer";
 
-type Props = { url: string; version: number };
+type Props = { url: string; version: number; company: string; onUnlocked: () => void };
 type Outcome = Experience["outcome"];
 
 const OUTCOMES: Outcome[] = ["Offer", "Rejected", "Withdrew", "Pending", "Unknown"];
@@ -10,7 +11,7 @@ const OUTCOMES: Outcome[] = ["Offer", "Rejected", "Withdrew", "Pending", "Unknow
 // Candidate stories for the current filters, with an outcome filter of its own.
 // The outcome filter is local state: nothing outside this tab needs it, so it
 // lives here rather than in App (keep state as close as possible to where it's used).
-export function ExperiencesTab({ url, version }: Props) {
+export function ExperiencesTab({ url, version, company, onUnlocked }: Props) {
   const stories = useApi<Experience[]>(url, version);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
@@ -18,12 +19,15 @@ export function ExperiencesTab({ url, version }: Props) {
   const stats = useMemo(() => {
     const all = stories.data ?? [];
     const by = (o: Outcome) => all.filter((e) => e.outcome === o).length;
-    const withRounds = all.filter((e) => e.rounds.length > 0);
-    const avg = withRounds.reduce((n, e) => n + e.rounds.length, 0) / (withRounds.length || 1);
+    // a locked story only carries its round count
+    const rounds = (e: Experience) => e.rounds?.length ?? e.rounds_count ?? 0;
+    const withRounds = all.filter((e) => rounds(e) > 0);
+    const avg = withRounds.reduce((n, e) => n + rounds(e), 0) / (withRounds.length || 1);
     return { total: all.length, offers: by("Offer"), rejected: by("Rejected"), avgRounds: avg.toFixed(1), by };
   }, [stories.data]);
 
   const visible = (stories.data ?? []).filter((e) => outcome === null || e.outcome === outcome);
+  const lockedPack = stories.data?.find((e) => e.locked)?.locked;
 
   if (stories.loading) return <p className="muted">Loading…</p>;
   if (stories.error) return <p className="error">{stories.error}</p>;
@@ -40,6 +44,8 @@ export function ExperiencesTab({ url, version }: Props) {
         <div><b>{stats.avgRounds}</b><span>avg rounds</span></div>
       </div>
 
+      {lockedPack && <PackOffer company={company} packId={lockedPack} onUnlocked={onUnlocked} />}
+
       <nav className="tabs" aria-label="Outcome">
         <button className={outcome === null ? "tab active" : "tab"} onClick={() => setOutcome(null)}>
           All <span className="count">{stats.total}</span>
@@ -52,11 +58,24 @@ export function ExperiencesTab({ url, version }: Props) {
       </nav>
 
       <section className="list">
-        {visible.map((e) => (
-          <ExperienceCard key={e.id} story={e} />
-        ))}
+        {visible.map((e) => (e.locked ? <LockedCard key={e.id} story={e} /> : <ExperienceCard key={e.id} story={e} />))}
       </section>
     </>
+  );
+}
+
+function LockedCard({ story: e }: { story: Experience }) {
+  const year = e.interview_year ?? e.posted_year;
+  return (
+    <article className="card story locked">
+      <div className="card-meta">
+        <span className={`outcome ${e.outcome.toLowerCase()}`}>{e.outcome}</span>
+        {e.position !== "Unknown" && <span className="muted">{e.position}</span>}
+        {e.difficulty !== "Unknown" && <span className="muted">difficulty: {e.difficulty}</span>}
+        {year && <span className="muted">{year}</span>}
+      </div>
+      <p className="card-text muted">🔒 {e.rounds_count} rounds, with what was asked in each and the candidate's advice.</p>
+    </article>
   );
 }
 

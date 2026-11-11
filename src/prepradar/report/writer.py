@@ -135,7 +135,10 @@ def write_guide(scope: Scope, questions: list[dict]) -> Grounded:
             f"{qid} [{q['category']}; {', '.join(q['topics'] or []) or '-'}; round {q['round']}; {year}; "
             f"×{q['times_reported']}{'; VAGUE' if not q['specific'] else ''}] {q['text']}  (sources: {', '.join(sids)})"
         )
-    facts = _facts(picked, len(sources), scope) + "\n" + _rounds_per_source(picked, url_to_sid)
+    # Facts describe every stored question; only the list sent to the model is capped
+    # per category. Counting the capped list made a pack's guide disagree with its cover.
+    all_urls = {u for q in questions for u in q["urls"] or []}
+    facts = _facts(questions, len(all_urls), scope) + "\n" + _rounds_per_source(picked, url_to_sid)
     source_lines = [f"{sid}: {url}" for sid, url in sources.items()]
 
     # Which sections the guide must have is decided here, not left to the model:

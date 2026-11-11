@@ -1,4 +1,36 @@
-// Shapes of the JSON the FastAPI backend returns (see src/prepradar/api.py).
+// Shapes of the JSON the FastAPI backend returns (see src/prepradar/api.py). The live
+// site has no FastAPI: static.ts answers the same URLs from exported JSON files.
+
+// True in the live build (`npm run build:static`).
+export const STATIC = import.meta.env.VITE_STATIC === "1";
+
+// An error that remembers the HTTP status, so callers can tell "no guide yet" (404)
+// from "the server broke".
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// GET a JSON endpoint. In the live build, requests the static data can answer never
+// leave the browser; payment routes still go to the Worker.
+export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  if (STATIC && !url.startsWith("/api/unlocked")) {
+    const { resolveStatic } = await import("./static");
+    return (await resolveStatic(url)) as T;
+  }
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.detail ?? res.statusText);
+  return res.json() as Promise<T>;
+}
+
+export async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.detail ?? res.statusText);
+  return res.json() as Promise<T>;
+}
 
 export type Question = {
   id: number;
@@ -20,23 +52,35 @@ export type Question = {
 
 export type Company = {
   company: string;
-  sources: number;
   questions: number;
-  last_fetched: string;
+  sources?: number;
+  last_fetched?: string;
 };
 
 export type Meta = {
   categories: string[];
   functions: Record<string, string[]>; // function -> its role ladder
   tracks: string[]; // engineering specialties
+  related_tracks?: Record<string, string[]>; // track -> tracks whose questions also apply (static data)
 };
+
+// Something a visitor can buy: everything for one company and function.
+export type Pack = { id: string; company: string; function: string; title: string; price_paise: number;
+                     unlocked?: boolean };
+
+export type Guide = { markdown: string; locked?: string }; // locked = pack id when this is a preview
 
 // How many questions a company has per function and position (for the dropdowns).
 export type Round = { name: string; kind: string; summary: string };
 
 // One candidate's interview story (a review page gives one per reviewer).
+// A locked story (static data) carries only its outline: outcome, level, round count.
 export type Experience = {
   id: number;
+  locked?: string; // pack id that unlocks it
+  rounds_count?: number;
+  function?: string;
+  track?: string;
   role: string | null;
   position: string;
   interview_year: number | null;

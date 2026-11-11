@@ -1,0 +1,16 @@
+// One Worker serves the whole live site: the built React app as static assets, plus
+// the few /api routes that need a secret (Razorpay keys) or locked content (KV).
+{
+  "name": "prepradar",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Locked pack content, uploaded with `npm run data:upload`. Create the namespace once
+  // with `npx wrangler kv namespace create PACKS` and paste its id here before deploying.
+  "kv_namespaces": [{ "binding": "PACKS", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }]
+}

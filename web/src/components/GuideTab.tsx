@@ -1,18 +1,20 @@
 import { useState } from "react";
+import { STATIC, type Guide } from "../api";
 import { useApi } from "../hooks/useApi";
 import { GuideView } from "./GuideView";
+import { PackOffer } from "./PackOffer";
 
-type Props = { url: string; version: number };
+type Props = { url: string; version: number; company: string; onUnlocked: () => void };
 
 // Shows the saved guide for the current filters, or offers to write one from the
 // questions already stored. The parent renders this with key={url}, so changing a
 // filter gives a fresh component: no leftover "Building…" or error from other filters.
-export function GuideTab({ url, version }: Props) {
+export function GuideTab({ url, version, company, onUnlocked }: Props) {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   // Bumped after a build so useApi refetches the guide that was just saved.
   const [built, setBuilt] = useState(0);
-  const guide = useApi<{ markdown: string }>(url, version + built);
+  const guide = useApi<Guide>(url, version + built);
 
   // An event handler can be async: it runs on the click, not during render, so
   // awaiting here is fine. (Fetching *for display* still belongs in an effect.)
@@ -30,9 +32,19 @@ export function GuideTab({ url, version }: Props) {
     }
   }
 
-  if (guide.data) return <GuideView markdown={guide.data.markdown} />;
+  if (guide.data) {
+    return (
+      <>
+        {guide.data.locked && <PackOffer company={company} packId={guide.data.locked} onUnlocked={onUnlocked} />}
+        <GuideView markdown={guide.data.markdown} />
+      </>
+    );
+  }
   if (guide.loading) return <p className="muted">Loading…</p>;
   if (guide.status !== 404) return guide.error ? <p className="error">{guide.error}</p> : null;
+
+  // The live site has no server to write guides; only saved ones exist there.
+  if (STATIC) return <p className="empty">No prep guide for these filters yet. Try “All roles” or another track.</p>;
 
   return (
     <div className="guide-empty">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
+import { STATIC, apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { Filters } from "./components/Filters";
 import { ExperiencesTab } from "./components/ExperiencesTab";
@@ -103,6 +103,9 @@ export default function App() {
     setQuery("");
   }
 
+  // A purchase changes what the data layer returns; bumping the version refetches it all.
+  const unlocked = () => setVersion((v) => v + 1);
+
   // Called by RunPanel when a run finishes: show that company and refetch.
   function runFinished(c: string) {
     pickCompany(c);
@@ -130,11 +133,14 @@ export default function App() {
         }}
       />
 
+      {/* The live site has no backend to run the pipeline; runs happen offline. */}
+      {!STATIC && (
       <details className="run-box">
         <summary>{company ? `Refresh ${company} or add a company` : "Add a company"}</summary>
         {/* key: a new company resets the panel's local state (log, typed name) */}
         <RunPanel key={company ?? ""} initialCompany={company ?? ""} scope={scope} onFinished={runFinished} />
       </details>
+      )}
 
       {!company && <p className="empty">Pick a company to see its questions.</p>}
 
@@ -152,8 +158,10 @@ export default function App() {
         </nav>
       )}
 
-      {storiesUrl && view === "experiences" && <ExperiencesTab url={storiesUrl} version={version} />}
-      {guideUrl && view === "guide" && <GuideTab key={guideUrl} url={guideUrl} version={version} />}
+      {company && storiesUrl && view === "experiences" && (
+        <ExperiencesTab url={storiesUrl} version={version} company={company} onUnlocked={unlocked} />
+      )}
+      {guideUrl && view === "guide" && <GuideTab key={guideUrl} url={guideUrl} version={version} company={company!} onUnlocked={unlocked} />}
 
       {company && view === "questions" && (
         <>
@@ -161,8 +169,8 @@ export default function App() {
           {questions.error && <p className="error">{questions.error}</p>}
           {empty ? (
             <p className="empty">
-              No {scope.position || scope.function} questions for {company} yet. Fetch them with
-              “Refresh {company}” above.
+              No {scope.position || scope.function} questions for {company} yet.
+              {!STATIC && ` Fetch them with “Refresh ${company}” above.`}
             </p>
           ) : (
             <SearchBox value={query} onChange={setQuery} />

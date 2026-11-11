@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "build:static": "tsc -b && vite build --mode static"
   },
   "dependencies": {
     "react": "19.1.0",

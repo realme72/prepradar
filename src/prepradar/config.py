@@ -30,3 +30,6 @@ JUDGE_REASONING = {"effort": os.getenv("JUDGE_REASONING", "low")}
 # >= AUTO: merge; between CANDIDATE and AUTO: ask the LLM; below CANDIDATE: new tag.
 TOPIC_AUTO_MERGE = float(os.getenv("TOPIC_AUTO_MERGE", "0.92"))
 TOPIC_CANDIDATE = float(os.getenv("TOPIC_CANDIDATE", "0.70"))
+
+# Price of a pack unlock in paise (Razorpay's unit; 4900 = ₹49).
+PACK_PRICE_PAISE = int(os.getenv("PACK_PRICE_PAISE", "4900"))

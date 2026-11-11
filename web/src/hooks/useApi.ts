@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiError, getJson } from "../api";
 
 // A custom hook: a function whose name starts with "use" and that calls other hooks.
 // It packages "fetch this URL and track loading/error" so every component can reuse it.
@@ -25,15 +26,15 @@ export function useApi<T>(url: string | null, version = 0) {
     setLoading(true);
     setError(null);
     setStatus(null);
-    fetch(url, { signal: controller.signal })
-      .then(async (res) => {
-        setStatus(res.status);
-        if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? res.statusText);
-        return res.json() as Promise<T>;
+    getJson<T>(url, controller.signal)
+      .then((d) => {
+        if (controller.signal.aborted) return; // the static resolver can't be aborted mid-way
+        setStatus(200);
+        setData(d);
       })
-      .then(setData)
       .catch((e: Error) => {
-        if (e.name !== "AbortError") {
+        if (e.name !== "AbortError" && !controller.signal.aborted) {
+          setStatus(e instanceof ApiError ? e.status : null);
           setData(null);
           setError(e.message);
         }
