@@ -1,8 +1,14 @@
-// The three Razorpay calls the Worker needs, authenticated with the account's key pair.
-// https://razorpay.com/docs/api/orders/ and /payments/
+// The Razorpay calls the Worker needs, authenticated with the account's key pair.
+// https://razorpay.com/docs/api/payments/subscriptions/
 
-export type Order = { id: string; amount: number; currency: string; notes?: Record<string, string> };
-export type Payment = { id: string; order_id: string; amount: number; currency: string; status: string };
+export type Subscription = {
+  id: string;
+  status: string; // created | authenticated | active | pending | halted | cancelled | completed | expired
+  current_end: number | null; // end of the paid period (unix seconds)
+  notes?: Record<string, string>;
+  has_scheduled_changes?: boolean;
+};
+export type Plan = { id: string; period: string; item: { amount: number; currency: string } };
 
 export class HttpError extends Error {
   status: number;
@@ -28,25 +34,27 @@ export class Razorpay {
       headers: { Authorization: `Basic ${btoa(`${this.keyId}:${this.keySecret}`)}`, "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (res.status === 400 || res.status === 404) throw new HttpError(404, "Payment not found");
+    if (res.status === 400 || res.status === 404) throw new HttpError(404, "Not found at Razorpay");
     if (!res.ok) throw new HttpError(502, `Razorpay returned ${res.status}`);
     return res.json() as Promise<T>;
   }
 
-  createOrder(amount: number, receipt: string, notes: Record<string, string>) {
-    return this.call<Order>("/orders", { amount, currency: "INR", receipt, notes });
+  plan(id: string) {
+    return this.call<Plan>(`/plans/${id}`);
   }
 
-  payment(id: string) {
-    return this.call<Payment>(`/payments/${id}`);
+  // total_count is required; 120 monthly charges = 10 years, i.e. "until cancelled".
+  createSubscription(planId: string, user: string) {
+    return this.call<Subscription>("/subscriptions", { plan_id: planId, total_count: 120, customer_notify: 1,
+                                                       notes: { user } });
   }
 
-  order(id: string) {
-    return this.call<Order>(`/orders/${id}`);
+  subscription(id: string) {
+    return this.call<Subscription>(`/subscriptions/${id}`);
   }
 
-  // Accounts with manual capture leave payments "authorized"; capturing takes the money.
-  capture(p: Payment) {
-    return this.call<Payment>(`/payments/${p.id}/capture`, { amount: p.amount, currency: p.currency });
+  // At cycle end: the subscriber keeps what they paid for until current_end.
+  cancelAtCycleEnd(id: string) {
+    return this.call<Subscription>(`/subscriptions/${id}/cancel`, { cancel_at_cycle_end: 1 });
   }
 }

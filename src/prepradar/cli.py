@@ -453,15 +453,6 @@ def cmd_export() -> None:
     print(f"exported {len(written)} companies ({total} questions) to {DATA_DIR.relative_to(Path.cwd())}")
 
 
-def cmd_pack(company: str, function: str, price: int | None) -> None:
-    from prepradar import config
-    from prepradar.publish import add_pack
-
-    pid = add_pack(company, function, price * 100 if price else config.PACK_PRICE_PAISE)
-    print(f"{pid} is on sale (packs/catalog.json); run `prepradar export`, then upload with "
-          f"`npm --prefix worker run data:upload`")
-
-
 def cmd_forget(urls: list[str]) -> None:
     from prepradar.store import db
 
@@ -554,11 +545,6 @@ def main() -> None:
 
     sub.add_parser("export", help="write the static site's data (web/public/data/*.json)")
 
-    p = sub.add_parser("pack", help="put a company + function on sale: what buyers unlock on the site")
-    p.add_argument("company")
-    p.add_argument("--function", default="Engineering", choices=list(FUNCTIONS))
-    p.add_argument("--price", type=int, help="in rupees (default PACK_PRICE_PAISE / 100)")
-
     p = sub.add_parser("usage", help="OpenAI tokens used, per model and purpose")
     p.add_argument("--days", type=int, default=30)
 
@@ -606,8 +592,6 @@ def run(args: argparse.Namespace) -> None:
         cmd_paste(args.company, args.url, args.file)
     elif args.cmd == "export":
         cmd_export()
-    elif args.cmd == "pack":
-        cmd_pack(args.company, args.function, args.price)
     elif args.cmd == "usage":
         cmd_usage(args.days)
 

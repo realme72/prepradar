@@ -1,12 +1,12 @@
-// Buying a pack: the Worker creates a Razorpay order at the catalog price, Razorpay's
-// own checkout takes the payment, and the Worker verifies it before handing back an
-// access token. Card/UPI details only ever go to Razorpay, never to our code.
+// Subscribing: the Worker creates a Razorpay subscription for the signed-in user,
+// Razorpay's own checkout takes the first payment and sets up UPI AutoPay or card
+// renewals, and the Worker verifies it. Card/UPI details only ever go to Razorpay.
 import { postJson } from "./api";
-import { saveToken } from "./access";
+import type { Session } from "./auth";
 
-type Order = { order_id: string; amount: number; currency: string; key_id: string; title: string };
-type Granted = { pack: string; title: string; token: string };
-type RazorpayResponse = { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string };
+type Started = { subscription_id: string; key_id: string };
+type RazorpayResponse = { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string };
+export type Me = { access: boolean; status: string | null; current_end: number | null; cancel_at_end: boolean };
 
 declare global {
   interface Window {
@@ -27,33 +27,27 @@ function loadCheckout(): Promise<void> {
 
 export class Cancelled extends Error {}
 
-export async function buyPack(pack: string): Promise<Granted> {
-  const [order] = await Promise.all([postJson<Order>("/api/checkout", { pack }), loadCheckout()]);
-  const granted = await new Promise<Granted>((resolve, reject) => {
+export async function subscribe(session: Session): Promise<Me> {
+  const [started] = await Promise.all([postJson<Started>("/api/subscribe", {}), loadCheckout()]);
+  return new Promise<Me>((resolve, reject) => {
     let lastError = "";
     const rzp = new window.Razorpay!({
-      key: order.key_id,
-      order_id: order.order_id,
-      amount: order.amount,
-      currency: order.currency,
+      key: started.key_id,
+      subscription_id: started.subscription_id,
       name: "PrepRadar",
-      description: order.title,
+      description: "Every company, every question · monthly",
+      prefill: { name: session.name, email: session.email }, // typed for them, sent only to Razorpay
       theme: { color: "#00c8d7" },
       handler: (r: RazorpayResponse) =>
-        postJson<Granted>("/api/verify", { order_id: r.razorpay_order_id, payment_id: r.razorpay_payment_id,
-                                           signature: r.razorpay_signature }).then(resolve, reject),
-      // Closing the window ends the attempt; a failed card inside it can be retried there.
+        postJson<Me>("/api/subscription/verify", { payment_id: r.razorpay_payment_id,
+                                                   subscription_id: r.razorpay_subscription_id,
+                                                   signature: r.razorpay_signature }).then(resolve, reject),
+      // Closing the window ends the attempt; a failed payment inside it can be retried there.
       modal: { ondismiss: () => reject(lastError ? new Error(lastError) : new Cancelled("Payment cancelled")) },
     });
     rzp.on("payment.failed", (r) => (lastError = r.error.description));
     rzp.open();
   });
-  saveToken(granted.pack, granted.token);
-  return granted;
 }
 
-export async function recoverPack(paymentId: string): Promise<Granted> {
-  const granted = await postJson<Granted>("/api/recover", { payment_id: paymentId });
-  saveToken(granted.pack, granted.token);
-  return granted;
-}
+export const cancelSubscription = () => postJson<Me>("/api/subscription/cancel", {});

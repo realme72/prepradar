@@ -1,6 +1,8 @@
 // Shapes of the JSON the FastAPI backend returns (see src/prepradar/api.py). The live
 // site has no FastAPI: static.ts answers the same URLs from exported JSON files.
 
+import { currentSession } from "./auth";
+
 // True in the live build (`npm run build:static`).
 export const STATIC = import.meta.env.VITE_STATIC === "1";
 
@@ -14,22 +16,36 @@ export class ApiError extends Error {
   }
 }
 
-// GET a JSON endpoint. In the live build, requests the static data can answer never
-// leave the browser; payment routes still go to the Worker.
-export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  if (STATIC && !url.startsWith("/api/unlocked")) {
-    const { resolveStatic } = await import("./static");
-    return (await resolveStatic(url)) as T;
-  }
-  const res = await fetch(url, { signal });
+// Routes the live site's Worker really serves; every other /api URL is answered in the
+// browser from static JSON.
+const WORKER_ROUTES = ["/api/config", "/api/me", "/api/content", "/api/session", "/api/subscribe", "/api/subscription"];
+
+// The signed-in user's token, on requests to the Worker.
+function authHeaders(): Record<string, string> {
+  const s = currentSession();
+  return s ? { Authorization: `Bearer ${s.token}` } : {};
+}
+
+async function check<T>(res: Response): Promise<T> {
   if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.detail ?? res.statusText);
   return res.json() as Promise<T>;
 }
 
+// GET a JSON endpoint. In the live build, requests the static data can answer never
+// leave the browser.
+export async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const path = url.split("?")[0];
+  // whole path segments: "/api/me" must not catch "/api/meta"
+  if (STATIC && !WORKER_ROUTES.some((r) => path === r || path.startsWith(`${r}/`))) {
+    const { resolveStatic } = await import("./static");
+    return (await resolveStatic(url)) as T;
+  }
+  return check<T>(await fetch(url, { signal, headers: authHeaders() }));
+}
+
 export async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.detail ?? res.statusText);
-  return res.json() as Promise<T>;
+  return check<T>(await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+                                    body: JSON.stringify(body) }));
 }
 
 export type Question = {
@@ -48,6 +64,7 @@ export type Question = {
   topics: string[] | null;
   urls: string[] | null;
   score?: number; // only on search results
+  locked?: boolean; // live site, not subscribed: an outline only (no text or sources)
 };
 
 export type Company = {
@@ -64,11 +81,7 @@ export type Meta = {
   related_tracks?: Record<string, string[]>; // track -> tracks whose questions also apply (static data)
 };
 
-// Something a visitor can buy: everything for one company and function.
-export type Pack = { id: string; company: string; function: string; title: string; price_paise: number;
-                     unlocked?: boolean };
-
-export type Guide = { markdown: string; locked?: string }; // locked = pack id when this is a preview
+export type Guide = { markdown: string; locked?: boolean }; // locked: a preview, for non-subscribers
 
 // How many questions a company has per function and position (for the dropdowns).
 export type Round = { name: string; kind: string; summary: string };
@@ -77,7 +90,7 @@ export type Round = { name: string; kind: string; summary: string };
 // A locked story (static data) carries only its outline: outcome, level, round count.
 export type Experience = {
   id: number;
-  locked?: string; // pack id that unlocks it
+  locked?: boolean; // only its outline, for non-subscribers
   rounds_count?: number;
   function?: string;
   track?: string;

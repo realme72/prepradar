@@ -2,14 +2,14 @@ import { useState } from "react";
 import { STATIC, type Guide } from "../api";
 import { useApi } from "../hooks/useApi";
 import { GuideView } from "./GuideView";
-import { PackOffer } from "./PackOffer";
+import { Paywall } from "../account";
 
-type Props = { url: string; version: number; company: string; onUnlocked: () => void };
+type Props = { url: string; version: number };
 
 // Shows the saved guide for the current filters, or offers to write one from the
 // questions already stored. The parent renders this with key={url}, so changing a
 // filter gives a fresh component: no leftover "Building…" or error from other filters.
-export function GuideTab({ url, version, company, onUnlocked }: Props) {
+export function GuideTab({ url, version }: Props) {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   // Bumped after a build so useApi refetches the guide that was just saved.
@@ -35,7 +35,7 @@ export function GuideTab({ url, version, company, onUnlocked }: Props) {
   if (guide.data) {
     return (
       <>
-        {guide.data.locked && <PackOffer company={company} packId={guide.data.locked} onUnlocked={onUnlocked} />}
+        {guide.data.locked && <Paywall what="The rest of this guide" />}
         <GuideView markdown={guide.data.markdown} />
       </>
     );

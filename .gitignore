@@ -11,7 +11,7 @@ web/dist/
 *.tsbuildinfo
 
 # Paid content and generated site data: never in the public repo
-packs/private/
+private/
 web/public/data/
 # Worker secrets for local dev
 .dev.vars

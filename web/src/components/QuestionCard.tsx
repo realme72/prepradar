@@ -38,3 +38,33 @@ export function QuestionCard({ question: q }: Props) {
     </article>
   );
 }
+
+// Stand-in words for a locked question. The real text isn't in the page at all (it's
+// not in the public data), so the blur hides nothing readable: it only shows shape.
+const FILLER = ["design", "a", "system", "that", "handles", "the", "array", "given", "find", "minimum", "cost",
+                "service", "graph", "with", "each", "request", "within", "queue", "and", "return", "order"];
+
+function filler(id: number) {
+  let x = id * 9301 + 49297;
+  const words = [];
+  for (let i = 0; i < 9 + (id % 6); i++) {
+    x = (x * 9301 + 49297) % 233280;
+    words.push(FILLER[x % FILLER.length]);
+  }
+  const text = words.join(" ");
+  return text[0].toUpperCase() + text.slice(1) + ".";
+}
+
+export function LockedQuestionCard({ question: q }: Props) {
+  return (
+    <article className="card locked-q" aria-label="Locked question">
+      <p className="card-text blurred" aria-hidden="true">{filler(q.id)}</p>
+      <div className="card-meta">
+        {q.times_reported > 1 && <span className="badge strong">×{q.times_reported} reported</span>}
+        {(q.topics ?? []).map((t) => <span key={t} className="badge">{t}</span>)}
+        {q.position !== "Unknown" && <span className="muted">{q.position}</span>}
+        <span className="muted">🔒</span>
+      </div>
+    </article>
+  );
+}

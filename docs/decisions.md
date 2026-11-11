@@ -112,3 +112,11 @@
 ## LeetCode Discuss (2026-11-11)
 
 - **Zero LeetCode pages had ever been stored**, despite a "leetcode discuss" search. LeetCode answers automated requests with 403 (a Cloudflare bot check), and Tavily returns no text for its posts either, so each one was dropped as "empty". We don't try to get past a site's bot protection. LeetCode is now paste-only: searches still list its posts, and a person copies a post's text into `prepradar paste COMPANY URL`. The text goes through the same pipeline, with the URL as the source.
+
+## Subscription with Google sign-in, replacing per-pack unlocks (2026-11-11)
+
+- **The user's model: ₹49/month unlocks the whole site, with real accounts.** Free visitors see half of each category's questions (most reported first), 3 stories per function and guide previews. The rest shows as blurred cards behind a paywall.
+- **The blur hides nothing readable.** Locked questions are in the public JSON only as outlines (category, topics, how often reported), with no text, links or embedding. The cards show placeholder words. Subscribers get the real text from `/api/content`, served from KV.
+- **Google sign-in, verified by the Worker:** the RS256 signature is checked against Google's JWKS, along with audience, issuer and expiry. The Worker then issues its own HMAC session. The only thing stored per user is Google's numeric id plus the subscription's id, status and period end. Name and email are shown in the browser and never saved.
+- **Razorpay Subscriptions + webhooks.** Checkout is verified with HMAC(payment_id|subscription_id). Webhooks, signed over the raw body, keep renewals, halts and cancellations current. If a renewal webhook is missed, the record is refreshed from Razorpay once its paid period is over. Cancelling stops at the end of the cycle, and access lasts until then.
+- **Bug caught in the browser:** routing `/api/me` to the Worker by string prefix also caught `/api/meta`, which emptied the filters. Routes are now matched by whole path segments.

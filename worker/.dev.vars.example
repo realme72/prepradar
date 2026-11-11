@@ -1,8 +1,17 @@
-# Copy to .dev.vars (gitignored) for `npm run dev`. Use Razorpay TEST mode keys only
-# (Dashboard → switch to Test Mode → Account & Settings → API Keys).
+# Copy to .dev.vars (gitignored) for `npm run dev`. Razorpay TEST mode values only.
 # In production these are set with `npx wrangler secret put <NAME>`, never in a file.
+
+# Google Cloud console → APIs & Services → Credentials → OAuth client ID (Web).
+# Not secret (it's in every page that shows the button), but specific to your project.
+GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+
+# Razorpay Dashboard (Test Mode) → Account & Settings → API Keys
 RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxxxx
 RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
-# Any long random string; signs the access tokens buyers keep in their browser.
-# Generate one with: openssl rand -hex 32
-ACCESS_SECRET=change-me
+# Razorpay Dashboard → Subscriptions → Plans → create "₹49 monthly", copy its id
+RAZORPAY_PLAN_ID=plan_xxxxxxxxxxxxxx
+# Razorpay Dashboard → Webhooks → the secret you type when adding the webhook
+RAZORPAY_WEBHOOK_SECRET=change-me
+
+# Any long random string; signs session tokens. Generate with: openssl rand -hex 32
+SESSION_SECRET=change-me

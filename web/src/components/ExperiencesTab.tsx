@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import type { Experience } from "../api";
 import { useApi } from "../hooks/useApi";
-import { PackOffer } from "./PackOffer";
+import { Paywall } from "../account";
 
-type Props = { url: string; version: number; company: string; onUnlocked: () => void };
+type Props = { url: string; version: number; company: string };
 type Outcome = Experience["outcome"];
 
 const OUTCOMES: Outcome[] = ["Offer", "Rejected", "Withdrew", "Pending", "Unknown"];
@@ -11,7 +11,7 @@ const OUTCOMES: Outcome[] = ["Offer", "Rejected", "Withdrew", "Pending", "Unknow
 // Candidate stories for the current filters, with an outcome filter of its own.
 // The outcome filter is local state: nothing outside this tab needs it, so it
 // lives here rather than in App (keep state as close as possible to where it's used).
-export function ExperiencesTab({ url, version, company, onUnlocked }: Props) {
+export function ExperiencesTab({ url, version, company }: Props) {
   const stories = useApi<Experience[]>(url, version);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
 
@@ -27,7 +27,7 @@ export function ExperiencesTab({ url, version, company, onUnlocked }: Props) {
   }, [stories.data]);
 
   const visible = (stories.data ?? []).filter((e) => outcome === null || e.outcome === outcome);
-  const lockedPack = stories.data?.find((e) => e.locked)?.locked;
+  const lockedCount = (stories.data ?? []).filter((e) => e.locked).length;
 
   if (stories.loading) return <p className="muted">Loading…</p>;
   if (stories.error) return <p className="error">{stories.error}</p>;
@@ -44,7 +44,7 @@ export function ExperiencesTab({ url, version, company, onUnlocked }: Props) {
         <div><b>{stats.avgRounds}</b><span>avg rounds</span></div>
       </div>
 
-      {lockedPack && <PackOffer company={company} packId={lockedPack} onUnlocked={onUnlocked} />}
+      {lockedCount > 0 && <Paywall what={`${lockedCount} more ${company} stories`} />}
 
       <nav className="tabs" aria-label="Outcome">
         <button className={outcome === null ? "tab active" : "tab"} onClick={() => setOutcome(null)}>

@@ -1,19 +1,18 @@
 // The live site's "backend": answers the FastAPI URLs from the exported JSON in
 // /data/, in the browser. Mirrors store/db.py's filters so both builds show the same
-// lists. Locked pack content is fetched from the Worker only with an access token.
-import { ApiError, type Experience, type Guide, type Meta, type Pack, type Question } from "./api";
-import { dropToken, tokenFor } from "./access";
+// lists. Subscribers' locked content comes from the Worker (/api/content).
+import { ApiError, getJson, type Experience, type Guide, type Meta, type Question } from "./api";
+import { currentSession } from "./auth";
 
-type Row = Question & { e: string }; // e = int8 embedding, base64
+type Row = Question & { e?: string }; // e = int8 embedding, base64 (absent on locked outlines)
 type CompanyFile = {
   company: string;
   questions: Row[];
   experiences: Experience[];
   guides: (Guide & { function: string; position: string; track: string; since: number | null })[];
-  packs: Pack[];
 };
 type Index = { updated: string; companies: { company: string; questions: number }[]; meta: Meta };
-type Locked = { pack: string; experiences: Experience[]; guides: CompanyFile["guides"] };
+type Locked = Omit<CompanyFile, "company">;
 type Scope = { function: string; position: string; track: string; since: number | null };
 
 // Each file is downloaded once per page load; every filter change reuses it.
@@ -30,40 +29,36 @@ function load<T>(path: string): Promise<T> {
 
 const index = () => load<Index>("/data/index.json");
 
-// Locked content for a pack this browser has a token for, or null. An expired or
-// revoked token is dropped so the page shows the offer again.
-// Cached per token, so filter changes don't refetch and a new purchase does.
-const unlocked = new Map<string, Promise<Locked | null>>();
-function unlockedContent(pack: string): Promise<Locked | null> {
-  const token = tokenFor(pack);
-  if (!token) return Promise.resolve(null);
-  const key = `${pack}:${token}`;
-  if (!unlocked.has(key)) {
-    unlocked.set(key, fetch(`/api/unlocked?pack=${encodeURIComponent(pack)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }).then((res) => {
-      if (res.status === 401) dropToken(pack);
-      if (!res.ok) unlocked.delete(key); // retry next time (e.g. a network blip)
-      return res.ok ? res.json() : null;
-    }));
-  }
-  return unlocked.get(key)!;
+// A subscriber's locked content per company, cached per session; resetLockedContent()
+// clears it when the user signs in or out, or subscribes.
+const locked = new Map<string, Promise<Locked | null>>();
+
+export function resetLockedContent() {
+  locked.clear();
 }
 
-// The public file with any purchased packs merged in: locked stories and guide
-// previews are swapped for the full versions.
+function lockedContent(name: string): Promise<Locked | null> {
+  const s = currentSession();
+  if (!s) return Promise.resolve(null);
+  const key = `${s.token}|${name}`;
+  if (!locked.has(key)) {
+    // 402 (not subscribed) or 401 (signed out) just means: show the free view
+    locked.set(key, getJson<Locked>(`/api/content?company=${encodeURIComponent(name)}`).catch(() => null));
+  }
+  return locked.get(key)!;
+}
+
+// The public file, with a subscriber's full versions swapped in for the outlines.
 async function company(name: string): Promise<CompanyFile> {
   const base = await load<CompanyFile>(`/data/${encodeURIComponent(name)}.json`);
-  const data = { ...base, packs: base.packs.map((p) => ({ ...p, unlocked: false })) };
-  for (const p of data.packs) {
-    const extra = await unlockedContent(p.id);
-    if (!extra) continue;
-    p.unlocked = true;
-    const full = new Map(extra.experiences.map((e) => [e.id, e]));
-    data.experiences = data.experiences.map((e) => (e.locked === p.id ? full.get(e.id) ?? e : e));
-    data.guides = [...data.guides.filter((g) => g.locked !== p.id), ...extra.guides];
-  }
-  return data;
+  const full = await lockedContent(name);
+  if (!full) return base;
+  const swap = <T extends { id: number }>(items: T[], extra: T[]) => {
+    const byId = new Map(extra.map((x) => [x.id, x]));
+    return items.map((x) => byId.get(x.id) ?? x);
+  };
+  return { company: name, questions: swap(base.questions, full.questions),
+           experiences: swap(base.experiences, full.experiences), guides: full.guides };
 }
 
 function inScope(row: { function?: string; position: string; track?: string; interview_year: number | null;
@@ -95,7 +90,7 @@ const vectors = new WeakMap<Row, Int8Array>();
 function vectorOf(q: Row): Int8Array {
   let v = vectors.get(q);
   if (!v) {
-    v = Int8Array.from(atob(q.e), (c) => (c.charCodeAt(0) << 24) >> 24); // bytes -> signed int8
+    v = Int8Array.from(atob(q.e!), (c) => (c.charCodeAt(0) << 24) >> 24); // bytes -> signed int8
     vectors.set(q, v);
   }
   return v;
@@ -121,8 +116,6 @@ export async function resolveStatic(url: string): Promise<unknown> {
                          track: p.get("track") || "", since: p.get("since") ? Number(p.get("since")) : null };
 
   switch (what) {
-    case "packs":
-      return c.packs;
     case "scopes": {
       // Specific questions per function/position under the track and year filters;
       // the track only narrows engineering rows (same as db.scope_counts).
@@ -153,7 +146,7 @@ export async function resolveStatic(url: string): Promise<unknown> {
       const k = Number(p.get("k") ?? 10);
       const qv = await embedQuery(query);
       return c.questions
-        .filter((q) => q.specific && inScope(q, scope, related))
+        .filter((q) => q.e && q.specific && inScope(q, scope, related)) // locked outlines have no embedding
         .map((q) => {
           const v = vectorOf(q);
           let dot = 0;

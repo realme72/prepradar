@@ -48,7 +48,6 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run prepradar forget URL                      # remove a source wrongly accepted as firsthand
     uv run prepradar experiences [--company X]       # backfill candidate stories (rounds, outcome, tips)
     uv run prepradar usage [--days 30]               # OpenAI tokens used, per model and purpose
-    uv run prepradar pack amazon [--price 49]        # sell Amazon Engineering as a site unlock
     uv run prepradar export                          # data for the free live site (see docs/deploy.md)
 
 ## Web UI (local)

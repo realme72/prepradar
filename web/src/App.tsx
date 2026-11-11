@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { AccountBar, Paywall, useAccount } from "./account";
 import { STATIC, apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { Filters } from "./components/Filters";
 import { ExperiencesTab } from "./components/ExperiencesTab";
 import { GuideTab } from "./components/GuideTab";
-import { QuestionCard } from "./components/QuestionCard";
+import { LockedQuestionCard, QuestionCard } from "./components/QuestionCard";
 import { RunPanel } from "./components/RunPanel";
 import { SearchBox } from "./components/SearchBox";
 import { useApi } from "./hooks/useApi";
@@ -25,7 +26,10 @@ export default function App() {
   const [view, setView] = useState<View>("questions");
   const [query, setQuery] = useState("");
   // Bumped after a run so every fetch below reloads with the new data.
-  const [version, setVersion] = useState(0);
+  const [runs, setRuns] = useState(0);
+  // Signing in, out, or subscribing changes what the data layer returns, too.
+  const account = useAccount();
+  const version = runs + account.version;
 
   // `query` changes on every keystroke (the input needs that); the search waits
   // until typing pauses.
@@ -76,13 +80,16 @@ export default function App() {
     () => Object.keys(topicCounts).sort((a, b) => topicCounts[b] - topicCounts[a] || a.localeCompare(b)),
     [topicCounts],
   );
+  // Readable questions first, then the locked ones (the paywall goes between them).
   const visible = useMemo(
     () =>
       inCategory
         .filter((q) => topic === null || (q.topics ?? []).includes(topic))
-        .sort((a, b) => b.times_reported - a.times_reported),
+        .sort((a, b) => Number(!!a.locked) - Number(!!b.locked) || b.times_reported - a.times_reported),
     [inCategory, topic],
   );
+  const lockedCount = visible.filter((q) => q.locked).length;
+  const allLocked = specific.filter((q) => q.locked).length;
 
   const vagueShown = useMemo(
     () => vague.filter((q) => category === null || q.category === category),
@@ -103,20 +110,20 @@ export default function App() {
     setQuery("");
   }
 
-  // A purchase changes what the data layer returns; bumping the version refetches it all.
-  const unlocked = () => setVersion((v) => v + 1);
-
   // Called by RunPanel when a run finishes: show that company and refetch.
   function runFinished(c: string) {
     pickCompany(c);
-    setVersion((v) => v + 1);
+    setRuns((v) => v + 1);
   }
 
   return (
     <div className="page">
       <header className="header">
-        <h1>PrepRadar</h1>
-        <p className="muted">Interview questions real candidates reported, by company.</p>
+        <div>
+          <h1>PrepRadar</h1>
+          <p className="muted">Interview questions real candidates reported, by company.</p>
+        </div>
+        <AccountBar />
       </header>
 
       <Filters
@@ -159,9 +166,9 @@ export default function App() {
       )}
 
       {company && storiesUrl && view === "experiences" && (
-        <ExperiencesTab url={storiesUrl} version={version} company={company} onUnlocked={unlocked} />
+        <ExperiencesTab url={storiesUrl} version={version} company={company} />
       )}
-      {guideUrl && view === "guide" && <GuideTab key={guideUrl} url={guideUrl} version={version} company={company!} onUnlocked={unlocked} />}
+      {guideUrl && view === "guide" && <GuideTab key={guideUrl} url={guideUrl} version={version} />}
 
       {company && view === "questions" && (
         <>
@@ -180,6 +187,9 @@ export default function App() {
             <section className="list">
               {results.loading && <p className="muted">Searching…</p>}
               {results.error && <p className="error">{results.error}</p>}
+              {allLocked > 0 && !account.me?.access && (
+                <p className="list-note muted">Searching the questions you can see; subscribers search all {specific.length}.</p>
+              )}
               {results.data?.length === 0 && <p className="empty">No close matches.</p>}
               {results.data?.map((q) => <QuestionCard key={q.id} question={q} />)}
             </section>
@@ -209,8 +219,14 @@ export default function App() {
                   </p>
                 )}
                 <section className="list">
-                  {visible.map((q) => (
-                    <QuestionCard key={q.id} question={q} />
+                  {visible.map((q, i) => (
+                    // Fragment with a key: a list item that renders two siblings.
+                    <Fragment key={q.id}>
+                      {q.locked && !visible[i - 1]?.locked && (
+                        <Paywall what={`${lockedCount} more ${category ?? ""} questions at ${company}`.replace("  ", " ")} />
+                      )}
+                      {q.locked ? <LockedQuestionCard question={q} /> : <QuestionCard question={q} />}
+                    </Fragment>
                   ))}
                 </section>
 

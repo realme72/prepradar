@@ -1,100 +1,160 @@
-// The whole purchase flow against a fake Razorpay and an in-memory KV.
+// Sign-in, subscribing, renewals and locked content, against a fake Google, a fake
+// Razorpay and in-memory KV.
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { beforeEach, test } from "node:test";
-import worker, { type Env } from "../src/index.ts";
+import worker, { hasAccess, type Env } from "../src/index.ts";
 
-const SECRET = "rzp_secret";
-let payment: Record<string, unknown>;
-const orders: Record<string, Record<string, unknown>> = {};
-const created: unknown[] = [];
+const CLIENT_ID = "test-client.apps.googleusercontent.com";
+const KEY_SECRET = "rzp_secret";
+const WEBHOOK_SECRET = "wh_secret";
+const hmac = (s: string, m: string) => createHmac("sha256", s).update(m).digest("hex");
+const now = () => Math.floor(Date.now() / 1000);
 
-// Stand-in for api.razorpay.com: create and read orders, read and capture payments.
+// ── fake Google: a real RSA key, so the Worker's signature check is exercised ──
+const pair = (await crypto.subtle.generateKey(
+  { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  true, ["sign", "verify"],
+)) as CryptoKeyPair;
+const jwk = { ...(await crypto.subtle.exportKey("jwk", pair.publicKey)), kid: "k1" };
+const b64url = (b: Uint8Array | string) =>
+  Buffer.from(typeof b === "string" ? b : b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function googleToken(claims: Record<string, unknown>, key = pair.privateKey) {
+  const head = b64url(JSON.stringify({ alg: "RS256", kid: "k1" }));
+  const body = b64url(JSON.stringify({ iss: "https://accounts.google.com", aud: CLIENT_ID, sub: "1111", exp: now() + 600,
+                                       name: "Test User", email: "t@example.com", ...claims }));
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${head}.${body}`)));
+  return `${head}.${body}.${b64url(sig)}`;
+}
+
+// ── fake Razorpay ──
+const subs: Record<string, Record<string, unknown>> = {};
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-  const path = new URL(String(input)).pathname.replace("/v1", "");
+  const url = new URL(String(input));
   const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
-  if (path === "/orders" && init?.method === "POST") {
+  if (url.hostname === "www.googleapis.com") return reply({ keys: [jwk] });
+  const path = url.pathname.replace("/v1", "");
+  if (path.startsWith("/plans/")) return reply({ id: "plan_1", period: "monthly", item: { amount: 4900, currency: "INR" } });
+  if (path === "/subscriptions" && init?.method === "POST") {
     const b = JSON.parse(String(init.body));
-    created.push(b);
-    const order = { id: `order_${created.length}`, ...b };
-    orders[order.id] = order;
-    return reply(order);
+    const s = { id: `sub_${Object.keys(subs).length + 1}`, status: "created", current_end: null, ...b };
+    subs[s.id] = s;
+    return reply(s);
   }
-  if (path.startsWith("/orders/")) return reply(orders[path.split("/")[2]]);
-  if (path.endsWith("/capture")) return reply({ ...payment, status: "captured" });
-  if (path.startsWith("/payments/")) return path.split("/")[2] === payment.id ? reply(payment) : reply({}, 400);
+  const id = path.split("/")[2];
+  if (path.endsWith("/cancel")) return reply(subs[id]);
+  if (path.startsWith("/subscriptions/")) return subs[id] ? reply(subs[id]) : reply({}, 400);
   return reply({}, 500);
 }) as typeof fetch;
 
-const kv = new Map([["pack:amazon-engineering", JSON.stringify({ pack: "amazon-engineering", experiences: [1, 2] })]]);
+function kv() {
+  const m = new Map<string, string>();
+  return {
+    map: m,
+    get: async (k: string, type?: string) => (m.has(k) ? (type === "json" ? JSON.parse(m.get(k)!) : m.get(k)!) : null),
+    put: async (k: string, v: string) => void m.set(k, v),
+  };
+}
+const USERS = kv();
+const CONTENT = kv();
+CONTENT.map.set("company:amazon", JSON.stringify({ company: "amazon", questions: [{ id: 9, text: "locked" }] }));
 const env = {
-  RAZORPAY_KEY_ID: "rzp_test_key",
-  RAZORPAY_KEY_SECRET: SECRET,
-  ACCESS_SECRET: "access_secret",
-  PACKS: { get: async (k: string) => kv.get(k) ?? null },
-  ASSETS: { fetch: async () => new Response("asset") },
+  GOOGLE_CLIENT_ID: CLIENT_ID, RAZORPAY_KEY_ID: "rzp_test_key", RAZORPAY_KEY_SECRET: KEY_SECRET,
+  RAZORPAY_PLAN_ID: "plan_1", RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET, SESSION_SECRET: "session_secret",
+  CONTENT, USERS, ASSETS: { fetch: async () => new Response("asset") },
 } as unknown as Env;
 
-// Response bodies are whatever the route returned; tests read them loosely.
 const read = async (res: Response): Promise<any> => res.json();
-
-const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
+const call = (method: string, path: string, body?: unknown, token?: string, raw?: string, headers: Record<string, string> = {}) =>
   worker.fetch(new Request(`https://prepradar.test${path}`, {
-    method, headers: { "Content-Type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined,
+    method,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
+    body: raw ?? (body ? JSON.stringify(body) : undefined),
   }), env);
 
-beforeEach(() => {
-  created.length = 0;
-});
-
-async function buy() {
-  const order = await read(await call("POST", "/api/checkout", { pack: "amazon-engineering" }));
-  payment = { id: "pay_TESTabc12345", order_id: order.order_id, amount: order.amount, currency: "INR", status: "captured" };
-  const signature = createHmac("sha256", SECRET).update(`${order.order_id}|pay_TESTabc12345`).digest("hex");
-  return { order, signature };
+async function signIn(sub = "1111") {
+  return (await read(await call("POST", "/api/session", { credential: await googleToken({ sub }) }))).session as string;
 }
 
-test("checkout charges the catalog price, whatever the browser sends", async () => {
-  const res = await call("POST", "/api/checkout", { pack: "amazon-engineering", amount: 100 });
-  assert.equal(res.status, 200);
-  assert.deepEqual(created[0], { amount: 4900, currency: "INR", receipt: (created[0] as any).receipt,
-                                 notes: { pack: "amazon-engineering" } });
-  assert.equal((await call("POST", "/api/checkout", { pack: "nope" })).status, 404);
+async function subscribeAndPay(token: string) {
+  const { subscription_id } = await read(await call("POST", "/api/subscribe", {}, token));
+  subs[subscription_id].status = "active"; // what Razorpay reports after the first charge
+  subs[subscription_id].current_end = now() + 30 * 86400;
+  const signature = hmac(KEY_SECRET, `pay_1|${subscription_id}`);
+  return { subscription_id, res: await call("POST", "/api/subscription/verify", { payment_id: "pay_1", subscription_id, signature }, token) };
+}
+
+beforeEach(() => {
+  USERS.map.clear();
 });
 
-test("a verified payment unlocks its pack, and only with the token", async () => {
-  const { order, signature } = await buy();
-  const res = await call("POST", "/api/verify", { order_id: order.order_id, payment_id: "pay_TESTabc12345", signature });
-  assert.equal(res.status, 200);
-  const { token, pack } = await read(res);
-  assert.equal(pack, "amazon-engineering");
-
-  const ok = await call("GET", "/api/unlocked?pack=amazon-engineering", undefined, { Authorization: `Bearer ${token}` });
-  assert.deepEqual(await read(ok), { pack: "amazon-engineering", experiences: [1, 2] });
-  assert.equal((await call("GET", "/api/unlocked?pack=amazon-engineering")).status, 401);
-  assert.equal((await call("GET", "/api/unlocked?pack=zemoso-engineering", undefined,
-                           { Authorization: `Bearer ${token}` })).status, 401);
+test("Google sign-in gives a session; forged or foreign tokens don't", async () => {
+  const res = await read(await call("POST", "/api/session", { credential: await googleToken({}) }));
+  assert.ok(res.session.startsWith("1111.") && res.user.name === "Test User");
+  assert.equal((await call("POST", "/api/session", { credential: await googleToken({ aud: "someone-else" }) })).status, 401);
+  assert.equal((await call("POST", "/api/session", { credential: await googleToken({ exp: now() - 1 }) })).status, 401);
+  const other = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  assert.equal((await call("POST", "/api/session", { credential: await googleToken({}, other.privateKey) })).status, 401);
+  assert.equal(USERS.map.size, 0); // signing in stores nothing
 });
 
-test("a forged signature or an unpaid payment gets nothing", async () => {
-  const { order } = await buy();
-  const forged = await call("POST", "/api/verify", { order_id: order.order_id, payment_id: "pay_TESTabc12345",
-                                                     signature: "0".repeat(64) });
+test("locked content needs a session and an active subscription", async () => {
+  assert.equal((await call("GET", "/api/content?company=amazon")).status, 401);
+  const token = await signIn();
+  assert.equal((await call("GET", "/api/content?company=amazon", undefined, token)).status, 402);
+  const { res } = await subscribeAndPay(token);
+  assert.deepEqual(await read(res), { access: true, status: "active", current_end: (await read(await call("GET", "/api/me", undefined, token))).current_end, cancel_at_end: false });
+  const content = await read(await call("GET", "/api/content?company=amazon", undefined, token));
+  assert.equal(content.questions[0].text, "locked");
+  // stored about the user: their subscription, keyed by Google's id; no name or email
+  assert.ok(!JSON.stringify([...USERS.map]).includes("example.com") && !JSON.stringify([...USERS.map]).includes("Test User"));
+});
+
+test("a forged checkout signature, or someone else's subscription, is refused", async () => {
+  const token = await signIn();
+  const { subscription_id } = await read(await call("POST", "/api/subscribe", {}, token));
+  const forged = await call("POST", "/api/subscription/verify", { payment_id: "pay_1", subscription_id, signature: "0".repeat(64) }, token);
   assert.equal(forged.status, 400);
-  const { order: o2, signature } = await buy();
-  payment.status = "failed";
-  const unpaid = await call("POST", "/api/verify", { order_id: o2.order_id, payment_id: "pay_TESTabc12345", signature });
-  assert.equal(unpaid.status, 402);
+  const intruder = await signIn("2222");
+  const signature = hmac(KEY_SECRET, `pay_1|${subscription_id}`);
+  const stolen = await call("POST", "/api/subscription/verify", { payment_id: "pay_1", subscription_id, signature }, intruder);
+  assert.equal(stolen.status, 403);
 });
 
-test("recover restores access from a payment ID, and rejects junk IDs", async () => {
-  await buy();
-  const res = await call("POST", "/api/recover", { payment_id: " pay_TESTabc12345 " });
-  assert.equal((await read(res)).pack, "amazon-engineering");
-  assert.equal((await call("POST", "/api/recover", { payment_id: "pay_UNKNOWN99999" })).status, 404);
-  assert.equal((await call("POST", "/api/recover", { payment_id: "../../etc" })).status, 400);
+test("webhooks keep the record current; cancelling keeps access to the period's end", async () => {
+  const token = await signIn();
+  const { subscription_id } = await subscribeAndPay(token);
+  const send = (event: string, entity: unknown) => {
+    const raw = JSON.stringify({ event, payload: { subscription: { entity } } });
+    return call("POST", "/api/razorpay/webhook", undefined, undefined, raw, { "X-Razorpay-Signature": hmac(WEBHOOK_SECRET, raw) });
+  };
+  const ended = { ...subs[subscription_id], status: "halted", current_end: now() - 10 };
+  assert.equal((await send("subscription.halted", ended)).status, 200);
+  assert.equal((await read(await call("GET", "/api/me", undefined, token))).access, false);
+  assert.equal((await call("POST", "/api/razorpay/webhook", undefined, undefined, "{}", { "X-Razorpay-Signature": "bad" })).status, 400);
+
+  await send("subscription.charged", { ...subs[subscription_id], status: "active", current_end: now() + 86400 });
+  const cancelled = await read(await call("POST", "/api/subscription/cancel", {}, token));
+  assert.equal(cancelled.cancel_at_end, true);
+  await send("subscription.cancelled", { ...subs[subscription_id], status: "cancelled", current_end: now() + 86400 });
+  assert.equal((await read(await call("GET", "/api/me", undefined, token))).access, true); // paid until current_end
 });
 
-test("everything else is served as a static file", async () => {
+test("access rules", () => {
+  const t = 1000;
+  assert.equal(hasAccess(null, t), false);
+  assert.equal(hasAccess({ subscription_id: "s", status: "created", current_end: null }, t), false);
+  assert.equal(hasAccess({ subscription_id: "s", status: "authenticated", current_end: null }, t), true);
+  assert.equal(hasAccess({ subscription_id: "s", status: "cancelled", current_end: 2000 }, t), true);
+  assert.equal(hasAccess({ subscription_id: "s", status: "cancelled", current_end: 500 }, t), false);
+  assert.equal(hasAccess({ subscription_id: "s", status: "expired", current_end: 2000 }, t), false);
+});
+
+test("config exposes only public values; other paths are static files", async () => {
+  const c = await read(await call("GET", "/api/config"));
+  assert.deepEqual(c, { google_client_id: CLIENT_ID, razorpay_key_id: "rzp_test_key",
+                        plan: { amount: 4900, currency: "INR", period: "monthly" } });
   assert.equal(await (await call("GET", "/data/amazon.json")).text(), "asset");
 });
