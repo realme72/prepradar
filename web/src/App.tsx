@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { Filters } from "./components/Filters";
-import { GuideView } from "./components/GuideView";
+import { GuideTab } from "./components/GuideTab";
 import { QuestionCard } from "./components/QuestionCard";
 import { RunPanel } from "./components/RunPanel";
 import { SearchBox } from "./components/SearchBox";
@@ -32,7 +32,11 @@ export default function App() {
 
   const meta = useApi<Meta>(apiUrl("/meta"));
   const companies = useApi<Company[]>(apiUrl("/companies"), version);
-  const scopeCounts = useApi<ScopeCount[]>(company ? apiUrl(`/companies/${company}/scopes`) : null, version);
+  // Counts follow the track and year filters, so "SDE 2 (15)" means 15 in the list.
+  const scopeCounts = useApi<ScopeCount[]>(
+    company ? apiUrl(`/companies/${company}/scopes`, { track: scope.track, since: scope.since }) : null,
+    version,
+  );
   // The URLs are derived from state, so changing any filter re-runs the fetches.
   const params = scopeParams(scope);
   const questions = useApi<Question[]>(
@@ -42,10 +46,7 @@ export default function App() {
   const results = useApi<Question[]>(
     company && searching ? apiUrl(`/companies/${company}/search`, { ...params, q: settledQuery, k: 15 }) : null,
   );
-  const guide = useApi<{ markdown: string }>(
-    company && view === "guide" ? apiUrl(`/companies/${company}/guide`, params) : null,
-    version,
-  );
+  const guideUrl = company ? apiUrl(`/companies/${company}/guide`, params) : null;
 
   // Derived data: computed from state during render, never stored in state itself.
   // useMemo skips recomputing unless its inputs change.
@@ -56,6 +57,7 @@ export default function App() {
     for (const q of specific) c[q.category] = (c[q.category] ?? 0) + 1;
     return c;
   }, [specific]);
+  const empty = questions.data?.length === 0;
   const visible = useMemo(
     () =>
       specific
@@ -118,27 +120,22 @@ export default function App() {
         </nav>
       )}
 
-      {company && view === "guide" && (
-        <>
-          {guide.loading && <p className="muted">Loading…</p>}
-          {guide.error && <p className="muted">{guide.error}</p>}
-          {guide.data && <GuideView markdown={guide.data.markdown} />}
-        </>
-      )}
+      {guideUrl && view === "guide" && <GuideTab key={guideUrl} url={guideUrl} version={version} />}
 
       {company && view === "questions" && (
         <>
-          <SearchBox value={query} onChange={setQuery} />
           {questions.loading && <p className="muted">Loading…</p>}
           {questions.error && <p className="error">{questions.error}</p>}
-          {questions.data?.length === 0 && (
+          {empty ? (
             <p className="empty">
               No {scope.position || scope.function} questions for {company} yet. Fetch them with
-              “{company ? `Refresh ${company}` : "Add a company"}” above.
+              “Refresh {company}” above.
             </p>
+          ) : (
+            <SearchBox value={query} onChange={setQuery} />
           )}
 
-          {searching ? (
+          {empty ? null : searching ? (
             <section className="list">
               {results.loading && <p className="muted">Searching…</p>}
               {results.error && <p className="error">{results.error}</p>}

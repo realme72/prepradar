@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 export function useApi<T>(url: string | null, version = 0) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<number | null>(null); // HTTP status of the last response
   const [loading, setLoading] = useState(false);
 
   // useEffect runs after React draws the screen, and again whenever a value in the
@@ -23,8 +24,10 @@ export function useApi<T>(url: string | null, version = 0) {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setStatus(null);
     fetch(url, { signal: controller.signal })
       .then(async (res) => {
+        setStatus(res.status);
         if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? res.statusText);
         return res.json() as Promise<T>;
       })
@@ -42,5 +45,5 @@ export function useApi<T>(url: string | null, version = 0) {
     return () => controller.abort();
   }, [url, version]);
 
-  return { data, error, loading };
+  return { data, error, loading, status };
 }

@@ -173,5 +173,6 @@ class Scope:
 
     def slug(self) -> str:
         """File name for this scope's saved guide."""
-        parts = [self.company, self.function, self.position, self.track]
+        parts = [self.company, self.function, self.position, self.track,
+                 f"since {self.since}" if self.since else None]
         return re.sub(r"[^a-z0-9]+", "-", "-".join(p for p in parts if p).lower()).strip("-")

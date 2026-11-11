@@ -80,3 +80,11 @@
   Detection -> Graphs) despite its instructions. Fine for sprawl; loses some detail.
 - A few vague tags that 2+ sources used still show ("Operational Concerns", "Reflection").
 - Each run reads ~12 write-ups per search round; big companies need several refresh runs.
+
+## UI review fixes (2026-11-11)
+
+- **Dropdown counts follow Track and Year** and count specific questions only, so "SDE 2 (26)" opens a list of 26. Track only narrows engineering rows.
+- **Guides are saved per year filter** (`since-2025` in the file name). Before, a year-filtered view silently showed the all-years guide.
+- **"Build guide from current questions"**: `POST /api/companies/{c}/guide` writes a guide from stored data, with no web search. The Prep guide tab offers it when no guide exists for the filters.
+- **Track is disabled, not hidden, outside Engineering**, so the layout doesn't jump. The chosen track is kept in state and comes back when switching back to Engineering.
+- **discuss.boardinfinity.com is rejected by URL rule**: its posts are AI summaries, and the classifier passed one on a re-run.

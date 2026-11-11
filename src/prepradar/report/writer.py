@@ -110,9 +110,9 @@ def _rounds_per_source(questions: list[dict], url_to_sid: dict[str, str]) -> str
         for url in q["urls"] or []:
             if q["round"] != "Unknown":
                 seen[url_to_sid[url]].add(q["round"])
-    rows = [f"  {sid}: {', '.join(r for r in order if r in rounds)}"
+    rows = [f"  - {sid}: {', '.join(r for r in order if r in rounds)}"
             for sid, rounds in sorted(seen.items(), key=lambda kv: int(kv[0][1:]))]
-    return "- Round types each write-up describes (one candidate each):\n" + ("\n".join(rows) or "  none stated")
+    return "- Round types each write-up describes (one candidate each):\n" + ("\n".join(rows) or "  - none stated")
 
 
 def write_guide(scope: Scope, questions: list[dict]) -> Grounded:

@@ -11,3 +11,8 @@ def test_review_sites_are_candidate_reviews_without_an_llm_call():
     for url in ["https://www.glassdoor.co.in/Interview/ZeMoSo-Interview-E825125-RVW75515598.htm",
                 "https://www.ambitionbox.com/interviews/zemoso-technologies-interview-questions"]:
         assert classify(page(url), "zemoso").is_firsthand
+
+
+def test_ai_summary_sites_are_rejected_without_an_llm_call():
+    url = "https://discuss.boardinfinity.com/t/amazon-product-manager-interview-questions-experience-guide/22860"
+    assert not classify(page(url), "amazon").is_firsthand

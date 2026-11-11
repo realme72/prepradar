@@ -90,11 +90,17 @@ CLASSIFY_CHARS = 6000  # the opening of a page is enough to tell a guide from an
 # already ignores model answers, so these skip the LLM.
 REVIEW_SITE_PATTERNS = (re.compile(r"glassdoor\.[a-z.]+/Interview/", re.I),
                         re.compile(r"ambitionbox\.com/interviews/", re.I))
+# Sites whose pages are AI-written summaries of other people's experiences. The
+# classifier caught them most of the time, but one passed on a re-run and ended up
+# cited on a top question, so they're rejected by rule.
+AI_SUMMARY_PATTERNS = (re.compile(r"discuss\.boardinfinity\.com/", re.I),)
 
 
 def classify(page: Page, company: str) -> PageCheck:
     if any(p.search(page.url) for p in REVIEW_SITE_PATTERNS):
         return PageCheck(evidence=f"{page.site} interview reviews section", page_kind="candidate_reviews")
+    if any(p.search(page.url) for p in AI_SUMMARY_PATTERNS):
+        return PageCheck(evidence=f"{page.site} posts are AI-written summaries", page_kind="guide")
     resp = client().responses.parse(
         model=config.JUDGE_MODEL,  # gpt-4o-mini believed guides that claim to be 'from candidates'
         reasoning=config.JUDGE_REASONING,

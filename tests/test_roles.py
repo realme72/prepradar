@@ -34,6 +34,8 @@ def test_broad_queries_follow_the_role_and_reach_back_in_years():
 
 def test_guide_file_names_are_safe():
     assert Scope("amazon", "People / HR", "HR Business Partner").slug() == "amazon-people-hr-hr-business-partner"
+    # a year-filtered guide is a different guide, not the all-years one
+    assert Scope("amazon", track="Backend", since=2025).slug() == "amazon-engineering-backend-since-2025"
 
 
 @pytest.mark.parametrize("title, level", [

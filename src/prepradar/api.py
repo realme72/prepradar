@@ -59,10 +59,10 @@ def companies():
 
 
 @app.get("/api/companies/{company}/scopes")
-def scopes(company: str):
+def scopes(company: str, track: str | None = None, since: int | None = None):
     """Question counts per function and position, for the UI's dropdowns."""
     with db.connect() as conn:
-        return db.scope_counts(conn, company)
+        return db.scope_counts(conn, company, track or None, since)
 
 
 @app.get("/api/companies/{company}/questions")
@@ -87,8 +87,26 @@ def guide(company: str, function: str = "Engineering", position: str | None = No
           track: str | None = None, since: int | None = None):
     path = guide_path(scope_of(company, function, position, track, since))
     if not path.exists():
-        raise HTTPException(404, "no guide yet; start a run to generate one")
+        raise HTTPException(404, "No guide for these filters yet.")
     return {"markdown": path.read_text()}
+
+
+@app.post("/api/companies/{company}/guide")
+def build_guide(company: str, function: str = "Engineering", position: str | None = None,
+                track: str | None = None, since: int | None = None):
+    """Write a guide from the questions already stored: no searching, one or two LLM calls."""
+    from prepradar.report.writer import render_markdown, write_guide
+
+    scope = scope_of(company, function, position, track, since)
+    with db.connect() as conn:
+        rows = db.all_questions(conn, scope)
+    if not any(q["specific"] for q in rows):
+        raise HTTPException(404, "Not enough questions for these filters to write a guide.")
+    md = render_markdown(scope, write_guide(scope, rows))
+    path = guide_path(scope)
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(md)
+    return {"markdown": md}
 
 
 class RunRequest(BaseModel):

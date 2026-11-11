@@ -313,12 +313,20 @@ def category_counts(conn, scope: Scope) -> dict[str, int]:
     return {r["category"]: r["n"] for r in rows}
 
 
-def scope_counts(conn, company: str) -> list[dict]:
-    """Questions per (function, position) for one company: what the UI's dropdowns offer."""
+def scope_counts(conn, company: str, track: str | None = None, since: int | None = None) -> list[dict]:
+    """Specific questions per (function, position) for one company: the numbers in the
+    UI's dropdowns. Track and year filters apply, so a count matches the list it opens."""
+    where, params = ["company = %s", "specific"], [company]
+    if track:  # only narrows engineering rows; other functions have no track
+        where.append("(function <> 'Engineering' OR track = ANY(%s))")
+        params.append(RELATED_TRACKS.get(track, [track, "General"]))
+    if since:
+        where.append("coalesce(interview_year, posted_year) >= %s")
+        params.append(since)
     return conn.execute(
-        """SELECT function, position, count(*) AS questions FROM questions
-           WHERE company = %s GROUP BY 1, 2 ORDER BY 1, 2""",
-        (company,),
+        f"""SELECT function, position, count(*) AS questions FROM questions
+            WHERE {" AND ".join(where)} GROUP BY 1, 2 ORDER BY 1, 2""",
+        params,
     ).fetchall()
 
 

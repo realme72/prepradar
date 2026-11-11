@@ -27,9 +27,12 @@ export function Filters({ companies, company, scope, ladders, tracks, counts, on
 
   // Changing the function invalidates the role (an "SDE 2" isn't a Sales role), so
   // this handler resets it in the same update. One event, one consistent new scope.
+  // The track is kept: scopeParams() leaves it out of requests outside engineering,
+  // and switching back to Engineering finds it where the user left it.
   function pickFunction(fn: string) {
-    onScope({ ...scope, function: fn, position: "", track: fn === "Engineering" ? scope.track : "" });
+    onScope({ ...scope, function: fn, position: "" });
   }
+  const engineering = scope.function === "Engineering";
 
   return (
     <div className="filters">
@@ -66,18 +69,21 @@ export function Filters({ companies, company, scope, ladders, tracks, counts, on
           ))}
         </select>
       </label>
-      {/* Conditional rendering: no Track dropdown at all outside engineering. */}
-      {scope.function === "Engineering" && (
-        <label>
-          Track
-          <select value={scope.track} onChange={(e) => onScope({ ...scope, track: e.target.value })}>
-            <option value="">All tracks</option>
-            {tracks.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-        </label>
-      )}
+      {/* Disabled rather than removed outside engineering, so the other dropdowns
+          don't jump around when the function changes. */}
+      <label>
+        Track
+        <select
+          value={engineering ? scope.track : ""}
+          disabled={!engineering}
+          onChange={(e) => onScope({ ...scope, track: e.target.value })}
+        >
+          <option value="">{engineering ? "All tracks" : "Engineering only"}</option>
+          {tracks.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </label>
       <label>
         Year
         <select

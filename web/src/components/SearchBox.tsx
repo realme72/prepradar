@@ -6,6 +6,8 @@ type Props = { value: string; onChange: (q: string) => void };
 export function SearchBox({ value, onChange }: Props) {
   return (
     <div className="search">
+      {/* type="search" for the keyboard and screen readers; its built-in × is hidden in
+          CSS because browsers differ (Firefox has none), and the Clear link works everywhere. */}
       <input
         type="search"
         placeholder="Search by meaning, e.g. “payment retries” or “debug a slow API”"
