@@ -109,6 +109,9 @@ def search(query: str, max_results: int = 10) -> tuple[str, list[SearchResult]]:
 QUERY_TEMPLATES = [
     "{company} interview experience",
     "{company} interview experience software engineer geeksforgeeks",
+    # experienced-hire loops are where LLD/HLD rounds show up; new-grad posts dominate otherwise
+    "{company} SDE 2 interview experience",
+    "{company} senior software engineer interview experience",
     "{company} interview questions reddit",
     "{company} interview experience leetcode discuss",
     "{company} interview experience medium blog",

@@ -27,7 +27,9 @@ def test_keeps_going_while_targeted_searches_add_questions():
 
 def test_gap_queries_skip_ones_already_run():
     state = {"company": "zemoso", "track": "Backend", "gaps": ["HLD", "LLD"], "retries": 1,
-             "searched": ["zemoso system design interview round"]}
+             "searched": ["zemoso system design round interview experience"]}
     out = nodes.plan_queries(state)
-    assert out["queries"] == ["zemoso low level design OOP interview"]
+    assert "zemoso system design round interview experience" not in out["queries"]
+    assert "zemoso SDE 2 interview experience system design" in out["queries"]
+    assert "zemoso interview experience low level design round" in out["queries"]
     assert out["retries"] == 2

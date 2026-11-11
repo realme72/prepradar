@@ -19,7 +19,8 @@ class Candidate:
 
 @dataclass
 class IngestStats:
-    pages: int = 0          # new pages sent to the LLM
+    pages: int = 0          # new firsthand pages extracted
+    rejected: int = 0       # new pages the classifier turned away
     questions: int = 0      # questions extracted
     new_questions: int = 0  # questions that weren't duplicates
     new_tags: list[str] = field(default_factory=list)
@@ -32,8 +33,10 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
         if c.url in seen:
             print(f"  cached ({seen[c.url]})  {c.url}")
             continue
+        # Only accepted pages count: rejecting one is a small classifier call, and
+        # counting rejects let a batch of prep guides use up the whole budget.
         if stats.pages >= limit:
-            print(f"  limit of {limit} new pages reached; run again for the rest")
+            print(f"  limit of {limit} new write-ups reached; run again for the rest")
             break
         page = load_page(c.url, c.title, c.raw_text)
         if page is None:
@@ -46,14 +49,15 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
             conn.commit()
             print(f"  same post as {same}, skipped  {c.url}")
             continue
-        stats.pages += 1
         firsthand, qs = extract(page, company, db.vocabulary(conn))
         status = "extracted" if firsthand else "not_firsthand"
         source_id = db.add_source(conn, c.url, company, status, page.site, page.title, posted_year, page.text)
         if not firsthand:
+            stats.rejected += 1
             conn.commit()
             print(f"  skipped: not a firsthand candidate experience  {c.url}")
             continue
+        stats.pages += 1
 
         vecs = embed([q.text for q in qs]) if qs else []
         dups, new_tags, mapped = 0, [], {}

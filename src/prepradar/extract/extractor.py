@@ -3,8 +3,8 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from prepradar import config
-from prepradar.extract.prompts import SYSTEM, USER, format_vocabulary
-from prepradar.models import ExtractedQuestion, ExtractionResult, Page
+from prepradar.extract.prompts import CLASSIFY, SYSTEM, USER, format_vocabulary
+from prepradar.models import ExtractedQuestion, ExtractionResult, Page, PageCheck
 
 _client: OpenAI | None = None
 
@@ -38,8 +38,25 @@ def match_tag(proposed: str, candidates: list[str]) -> str | None:
     return same if same in candidates else None
 
 
+CLASSIFY_CHARS = 6000  # the opening of a page is enough to tell a guide from an experience
+
+
+def classify(page: Page, company: str) -> PageCheck:
+    resp = client().responses.parse(
+        model=config.OPENAI_MODEL,
+        instructions=CLASSIFY.format(company=company),
+        input=USER.format(company=company, site=page.site, title=page.title or "unknown",
+                          text=page.text[:CLASSIFY_CHARS]),
+        text_format=PageCheck,
+        temperature=0,
+    )
+    return resp.output_parsed
+
+
 def extract(page: Page, company: str, vocabulary: dict[str, str]) -> tuple[bool, list[ExtractedQuestion]]:
     """Returns (is_firsthand, questions). vocabulary maps tag name -> category."""
+    if not classify(page, company).is_firsthand:
+        return False, []
     resp = client().responses.parse(
         model=config.OPENAI_MODEL,
         instructions=SYSTEM.format(company=company, vocabulary=format_vocabulary(vocabulary)),
@@ -53,8 +70,6 @@ def extract(page: Page, company: str, vocabulary: dict[str, str]) -> tuple[bool,
         temperature=0,
     )
     result: ExtractionResult = resp.output_parsed
-    if not result.is_firsthand:
-        return False, []
     posted_year = int(page.published[:4]) if page.published else None
     return True, [
         ExtractedQuestion(**q.model_dump(), company=company, source_url=page.url, posted_year=posted_year)

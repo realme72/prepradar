@@ -80,6 +80,23 @@ def add_source(conn, url: str, company: str, status: str, site=None, title=None,
     ).fetchone()["id"]
 
 
+def forget_source(conn, url: str) -> int:
+    """Drop a source that should never have been accepted: its questions go, unless
+    another source also reported them, and the URL stays cached as not_firsthand so
+    it isn't fetched again. Returns how many questions were deleted."""
+    row = conn.execute("SELECT id FROM sources WHERE url = %s", (url,)).fetchone()
+    if not row:
+        raise RuntimeError(f"unknown source: {url}")
+    conn.execute("DELETE FROM question_sources WHERE source_id = %s", (row["id"],))
+    deleted = conn.execute(
+        """DELETE FROM questions q
+           WHERE NOT EXISTS (SELECT 1 FROM question_sources qs WHERE qs.question_id = q.id)"""
+    ).rowcount
+    conn.execute("UPDATE sources SET status = 'not_firsthand' WHERE id = %s", (row["id"],))
+    conn.commit()
+    return deleted
+
+
 # ── topics ───────────────────────────────────────────────────────────────────
 
 def vocabulary(conn: psycopg.Connection) -> dict[str, str]:
@@ -89,7 +106,7 @@ def vocabulary(conn: psycopg.Connection) -> dict[str, str]:
 # Tags that only restate a category ("System Design" on an HLD question) add nothing.
 REDUNDANT_TAGS = {c.lower() for c in Category.__args__} | {
     "system design", "coding", "algorithms", "data structures", "programming", "dsa", "devops", "cloud computing",
-    "problem solving",
+    "problem solving", "technical questions", "technical architecture", "technical skills",
 }
 
 

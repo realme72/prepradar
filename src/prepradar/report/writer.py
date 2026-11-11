@@ -45,11 +45,16 @@ Hard rules:
 - Do not add general interview advice, typical industry practice, or questions that
   aren't in the data. "Zemoso probably also asks X" is forbidden.
 - Use the precomputed FACTS for any number. Never count yourself.
-- Only write sections for categories that have questions. Skip vague questions in
-  must_prepare; they can inform a summary ("candidates mention medium DSA problems [Q9]").
+- Write exactly one section for each category in REQUIRED SECTIONS, no more, no fewer.
+  Skip vague questions in must_prepare; they can inform a summary ("candidates mention
+  medium DSA problems [Q9]").
 - Caveats: name the thin core categories from FACTS, say how old the data is, and how
   many write-ups it rests on. No generic caveats.
 """
+
+
+class MissingSections(BaseModel):
+    sections: list[Section]
 
 
 @dataclass
@@ -131,14 +136,33 @@ def write_guide(company: str, track: str | None, questions: list[dict]) -> Groun
     facts = _facts(picked, len(sources), track) + "\n" + _rounds_per_source(picked, url_to_sid)
     source_lines = [f"{sid}: {url}" for sid, url in sources.items()]
 
-    resp = client().responses.parse(
+    # Which sections the guide must have is decided here, not left to the model:
+    # with ~100 questions it sometimes wrote one section and stopped.
+    required = [c for c in CATEGORY_ORDER if any(q["category"] == c and q["specific"] for q in picked)]
+    instructions = SYSTEM.format(company=company, track_note=f" ({track} track)" if track else "")
+    data = ("FACTS\n" + facts + "\n\nSOURCES\n" + "\n".join(source_lines)
+            + "\n\nQUESTIONS\n" + "\n".join(lines))
+
+    guide: PrepGuide = client().responses.parse(
         model=config.OPENAI_MODEL,
-        instructions=SYSTEM.format(company=company, track_note=f" ({track} track)" if track else ""),
-        input="FACTS\n" + facts + "\n\nSOURCES\n" + "\n".join(source_lines) + "\n\nQUESTIONS\n" + "\n".join(lines),
+        instructions=instructions,
+        input=f"REQUIRED SECTIONS: {', '.join(required)}\n\n{data}",
         text_format=PrepGuide,
         temperature=0.2,
-    )
-    guide: PrepGuide = resp.output_parsed
+    ).output_parsed
+    guide.sections = [s for s in guide.sections if s.category in required]
+    missing = [c for c in required if c not in {s.category for s in guide.sections}]
+    if missing:  # one follow-up call for just the sections it skipped
+        extra: MissingSections = client().responses.parse(
+            model=config.OPENAI_MODEL,
+            instructions=instructions,
+            input=f"REQUIRED SECTIONS: {', '.join(missing)}\n\n{data}",
+            text_format=MissingSections,
+            temperature=0.2,
+        ).output_parsed
+        guide.sections += [s for s in extra.sections if s.category in missing]
+    seen: set[str] = set()  # one section per category, even if the model repeated one
+    guide.sections = [s for s in guide.sections if not (s.category in seen or seen.add(s.category))]
     dropped = _enforce_citations(guide, set(qmap), set(sources))
     for sec in guide.sections:  # the prompt says so, but don't rely on it
         sec.must_prepare = [q for q in sec.must_prepare if qmap[q]["specific"]]

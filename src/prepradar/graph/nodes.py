@@ -26,18 +26,25 @@ CORE_CATEGORIES = {
 }
 DEFAULT_CORE = CORE_CATEGORIES["Backend"]
 
-# One targeted search per thin category.
+# Targeted searches per thin category. Phrased as "interview experience", never
+# "interview questions": the latter mostly finds prep guides and question banks.
+# Design rounds mostly appear in experienced-hire loops, so HLD/LLD ask for those.
 GAP_QUERIES = {
-    "DSA": "{company} coding round interview questions",
-    "LLD": "{company} low level design OOP interview",
-    "HLD": "{company} system design interview round",
-    "Backend": "{company} {role} technical interview questions",
-    "Database": "{company} SQL DBMS interview questions",
-    "Messaging & Streaming": "{company} kafka interview questions",
-    "DevOps & Cloud": "{company} devops interview questions",
-    "Frontend": "{company} frontend react interview questions",
-    "ML/AI": "{company} machine learning interview questions",
-    "Behavioral": "{company} HR managerial round interview",
+    "DSA": ["{company} coding round interview experience",
+            "{company} online assessment interview experience"],
+    "LLD": ["{company} interview experience low level design round",
+            "{company} machine coding round interview experience",
+            "{company} SDE 2 interview experience LLD"],
+    "HLD": ["{company} system design round interview experience",
+            "{company} SDE 2 interview experience system design",
+            "{company} senior software engineer interview experience HLD"],
+    "Backend": ["{company} {role} interview experience technical round"],
+    "Database": ["{company} interview experience SQL DBMS round"],
+    "Messaging & Streaming": ["{company} interview experience kafka"],
+    "DevOps & Cloud": ["{company} devops engineer interview experience"],
+    "Frontend": ["{company} frontend engineer interview experience"],
+    "ML/AI": ["{company} machine learning engineer interview experience"],
+    "Behavioral": ["{company} hiring manager round interview experience"],
 }
 
 
@@ -63,9 +70,10 @@ def plan_queries(state: GraphState) -> dict:
     if gaps is None:  # first round: broad queries
         queries = [t.format(company=company) for t in QUERY_TEMPLATES]
         return {"queries": queries, "log": [f"plan_queries: {len(queries)} broad queries"]}
-    role = (state.get("track") or "software engineer").lower()
+    role = f"{state['track'].lower()} engineer" if state.get("track") else "software engineer"
     done = set(state.get("searched", []))
-    queries = [q for q in (GAP_QUERIES[g].format(company=company, role=role) for g in gaps) if q not in done]
+    queries = [q for g in gaps for t in GAP_QUERIES[g]
+               if (q := t.format(company=company, role=role)) not in done]
     retries = state.get("retries", 0) + 1
     return {"queries": queries, "retries": retries,
             "log": [f"plan_queries: retry {retries}, targeting {', '.join(gaps)}"]}
@@ -82,7 +90,8 @@ def ingest_pages(state: GraphState) -> dict:
     with db.connect() as conn:
         stats = ingest(conn, state["company"], state["candidates"], state.get("limit", 15))
     return {"last_new_questions": stats.new_questions,
-            "log": [f"ingest: {stats.pages} new pages, {stats.new_questions} new questions"
+            "log": [f"ingest: {stats.pages} new write-ups ({stats.rejected} guides/question banks rejected), "
+                    f"{stats.new_questions} new questions"
                     + (f", new tags: {', '.join(stats.new_tags)}" if stats.new_tags else "")]}
 
 

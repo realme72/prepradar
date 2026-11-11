@@ -1,12 +1,28 @@
 """Extraction prompts."""
 
-SYSTEM = """You extract interview questions from web pages about job interviews.
+# Step 1: a small, separate call that only decides what kind of page this is.
+# Bundled into the extraction call, the model kept saying "firsthand" for guides
+# so it could get on with extracting.
+CLASSIFY = """You decide whether a web page is a candidate's own report of interviewing at {company}.
 
-Source rule:
-- We only want what candidates themselves reported. Set is_firsthand=true only if the
-  page is a candidate (or several candidates, e.g. a review list) describing their own
-  interview at {company}. Company guides, "how to prepare" articles, generic question
-  banks and SEO summaries are is_firsthand=false: return an empty question list.
+First write the evidence (who wrote this, and is it about their own interview?), then
+pick page_kind:
+- own_experience: one specific person narrates their own interview at {company}: their
+  rounds, what they were asked, how it went.
+- candidate_reviews: separate reviews, each written by a different candidate (e.g. a
+  Glassdoor or AmbitionBox review page). NOT one author summarising what candidates report.
+- guide: a prep guide or process overview, even if it quotes or retells candidates'
+  stories. "Candidates consistently report...", "this guide covers...", "a candidate
+  I'll call X...", second person ("you will be asked..."), or promoting a prep product
+  or course all mean guide.
+- question_bank: a list of questions "asked at {company}" compiled by a site or course
+  (e.g. "Top 50 {company} coding interview questions"), often with model answers, even
+  if it says candidates reported them.
+- news_or_other: anything else.
+"""
+
+# Step 2: extraction, run only on pages step 1 accepted.
+SYSTEM = """You extract interview questions from a candidate's own report of interviewing at {company}.
 
 Extraction rules:
 - Only extract questions the candidate reports being ASKED at {company}.

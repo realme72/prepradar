@@ -66,10 +66,28 @@ class QuestionDraft(BaseModel):
         return list(dict.fromkeys(t.strip() for t in v if t.strip()))
 
 
+# What kind of page this is. Asking for the evidence and a kind is more reliable
+# than a bare yes/no: the model has to commit to a reading of the page.
+PageKind = Literal[
+    "own_experience",      # one person narrates their own interview at the company
+    "candidate_reviews",   # separate reviews, each by a different candidate (Glassdoor-style)
+    "guide",               # prep guide, process overview, "how to crack", even with anecdotes
+    "question_bank",       # list of questions "asked at" the company, often with answers
+    "news_or_other",
+]
+FIRSTHAND_KINDS = {"own_experience", "candidate_reviews"}
+
+
+class PageCheck(BaseModel):
+    evidence: str = Field(description="One sentence on who wrote this and whether it is their own interview")
+    page_kind: PageKind
+
+    @property
+    def is_firsthand(self) -> bool:
+        return self.page_kind in FIRSTHAND_KINDS
+
+
 class ExtractionResult(BaseModel):
-    is_firsthand: bool = Field(
-        description="True only if the page is a candidate describing their own interview at the company"
-    )
     questions: list[QuestionDraft]
 
 

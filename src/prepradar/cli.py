@@ -10,6 +10,7 @@
     prepradar guide zemoso --track Backend                 # grounded prep guide from stored data only
     prepradar graph                                        # Mermaid diagram of the graph
     prepradar topics [--discovered] [--merge OLD INTO] [--delete TAG]
+    prepradar forget URL [URL ...]                        # drop a source wrongly accepted, and its questions
 """
 import argparse
 from collections import defaultdict
@@ -199,6 +200,14 @@ def cmd_topics(discovered_only: bool, merge: list[str] | None, delete: str | Non
         print(f"  {r['n']:3d}  {r['name']}{mark}")
 
 
+def cmd_forget(urls: list[str]) -> None:
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        for url in urls:
+            print(f"forgot {url}: {db.forget_source(conn, url)} questions removed")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="prepradar")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -243,6 +252,9 @@ def main() -> None:
     p.add_argument("--merge", nargs=2, metavar=("OLD", "INTO"), help="fold tag OLD into tag INTO")
     p.add_argument("--delete", metavar="TAG", help="remove a tag from the vocabulary and all questions")
 
+    p = sub.add_parser("forget", help="drop a source wrongly accepted as firsthand, and its questions")
+    p.add_argument("urls", nargs="+")
+
     args = parser.parse_args()
     try:
         run(args)
@@ -269,6 +281,8 @@ def run(args: argparse.Namespace) -> None:
         cmd_graph()
     elif args.cmd == "topics":
         cmd_topics(args.discovered, args.merge, args.delete)
+    elif args.cmd == "forget":
+        cmd_forget(args.urls)
 
 
 if __name__ == "__main__":
