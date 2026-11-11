@@ -108,3 +108,7 @@
 - **Packs unlock content on the site; there's no PDF** (the user's call). Locked stories and full guides are left out of the public JSON entirely. Only the Worker serves them, from KV, to holders of an HMAC-signed token issued after it verifies the payment with Razorpay. Tokens need no database.
 - **Prices live in `packs/catalog.json`**, bundled into the Worker, never sent by the browser. **Recovery uses the Razorpay payment ID**, which only the buyer gets, so access works on a new device without accounts or email.
 - A function with no pack keeps all of its content free.
+
+## LeetCode Discuss (2026-11-11)
+
+- **Zero LeetCode pages had ever been stored**, despite a "leetcode discuss" search. LeetCode answers automated requests with 403 (a Cloudflare bot check), and Tavily returns no text for its posts either, so each one was dropped as "empty". We don't try to get past a site's bot protection. LeetCode is now paste-only: searches still list its posts, and a person copies a post's text into `prepradar paste COMPANY URL`. The text goes through the same pipeline, with the URL as the source.

@@ -82,6 +82,24 @@ def cmd_ingest(company: str, urls_file: str | None, limit: int) -> None:
         ingest(conn, company, candidates, limit)
 
 
+def cmd_paste(company: str, url: str, path: str | None) -> None:
+    """Ingest a write-up from text a person copied, for sites that refuse automated
+    reading (LeetCode Discuss). Same checks as any page: firsthand, dedupe, tags, story.
+    The text itself isn't stored, only what's extracted, with the URL as the source."""
+    import sys
+
+    from prepradar.pipeline import Candidate, ingest
+    from prepradar.store import db
+
+    text = Path(path).read_text() if path else sys.stdin.read()
+    if len(text.strip()) < 300:
+        raise RuntimeError("that's too little text for a write-up; copy the whole post")
+    with db.connect() as conn:
+        stats = ingest(conn, company, [Candidate(url, None, text)], limit=1)
+    if stats.pages == 0 and stats.rejected == 0:
+        print("nothing added (already stored, or the same post as one we have)")
+
+
 def print_report(questions: list[dict], header: str) -> None:
     specific = [q for q in questions if q["specific"]]
     vague = [q for q in questions if not q["specific"]]
@@ -529,6 +547,11 @@ def main() -> None:
     p.add_argument("--company")
     p.add_argument("--redo", action="store_true", help="re-extract sources that already have stories")
 
+    p = sub.add_parser("paste", help="add a write-up from copied text (for sites like LeetCode that block reading)")
+    p.add_argument("company")
+    p.add_argument("url", help="the post's address, kept as the source link")
+    p.add_argument("--file", help="read the text from a file instead of stdin")
+
     sub.add_parser("export", help="write the static site's data (web/public/data/*.json)")
 
     p = sub.add_parser("pack", help="put a company + function on sale: what buyers unlock on the site")
@@ -579,6 +602,8 @@ def run(args: argparse.Namespace) -> None:
         cmd_forget(args.urls)
     elif args.cmd == "experiences":
         cmd_experiences(args.company, args.redo)
+    elif args.cmd == "paste":
+        cmd_paste(args.company, args.url, args.file)
     elif args.cmd == "export":
         cmd_export()
     elif args.cmd == "pack":

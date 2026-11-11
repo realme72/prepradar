@@ -5,7 +5,7 @@ Shared by `prepradar ingest` and the graph's ingest node.
 from dataclasses import dataclass, field
 
 from prepradar.extract.extractor import extract, extract_experiences, match_tag, same_question
-from prepradar.sources.fetch import load_page
+from prepradar.sources.fetch import load_page, paste_only
 from prepradar.store import db
 from prepradar.store.embeddings import embed
 
@@ -61,6 +61,10 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
             print(f"  limit of {limit} new write-ups reached; run again for the rest")
             break
         page = load_page(c.url, c.title, c.raw_text)
+        if page is None and paste_only(c.url):
+            print(f"  can't be read automatically; to add it, copy the post and run "
+                  f"`pbpaste | uv run prepradar paste {company} '{c.url}'`")
+            continue
         if page is None:
             print(f"  blocked/empty, will retry next run  {c.url}")
             continue

@@ -115,7 +115,7 @@ QUERY_TEMPLATES = [
     "{company} SDE 2 interview experience",
     "{company} senior software engineer interview experience",
     "{company} interview questions reddit",
-    "{company} interview experience leetcode discuss",
+    "{company} interview experience site:leetcode.com/discuss",  # listed for pasting; see fetch.PASTE_ONLY_SITES
     "{company} interview experience medium blog",
     "{company} interview questions glassdoor ambitionbox",
 ]

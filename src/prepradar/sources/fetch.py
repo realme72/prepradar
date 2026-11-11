@@ -20,6 +20,14 @@ PROVIDER_TEXT_FIRST = ("linkedin.com",)
 # Sites whose page titles carry the author's name ("Jane Doe on LinkedIn: ..."); not stored.
 NAMED_TITLE_SITES = ("linkedin.com",)
 MIN_TEXT_CHARS = 300
+# Sites that refuse automated reading (LeetCode Discuss answers 403 from a bot check, and
+# search providers get no text either). We don't try to get past that: their posts come
+# in only as text a person pasted (`prepradar paste`), so we never even request them.
+PASTE_ONLY_SITES = ("leetcode.com",)
+
+
+def paste_only(url: str) -> bool:
+    return any(s in url for s in PASTE_ONLY_SITES)
 
 
 def site_of(url: str) -> str:
@@ -52,6 +60,8 @@ def fetch(url: str) -> Page | None:
 def load_page(url: str, title: str | None, raw_text: str | None) -> Page | None:
     """Our own fetch (gives the publish date), else the search provider's text,
     in the opposite order for login-walled sites."""
+    if paste_only(url):
+        return page_from_text(url, title, raw_text)
     if any(s in url for s in PROVIDER_TEXT_FIRST):
         page = page_from_text(url, title, raw_text) or fetch(url)
     else:
