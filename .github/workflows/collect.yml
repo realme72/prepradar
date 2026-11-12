@@ -12,6 +12,10 @@ on:
       company:
         description: Company name, lowercase (e.g. cashfree)
         required: true
+      refresh:
+        description: Search again even if the company has recent data (reads only pages not seen before)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -59,7 +63,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           PYTHONUNBUFFERED: "1"  # each line when it happens, so the log's timestamps show where time goes
-        run: uv run prepradar run "$COMPANY" --function Engineering
+          REFRESH: ${{ inputs.refresh && '1' || '' }}
+        run: uv run prepradar run "$COMPANY" --function Engineering ${REFRESH:+--refresh}
       - id: count
         run: echo "questions=$(uv run prepradar count "$COMPANY" 2>/dev/null | tail -1)" >> "$GITHUB_OUTPUT"
       # Tell the site how it went when there's nothing to publish (it shows "ready"
