@@ -283,11 +283,13 @@ QUESTION_VIEW = f"""
     SELECT q.id, q.text, q.specific, q.category, q.round, q.function, q.position, q.track, q.role,
            q.interview_year, q.posted_year,
            (SELECT count(*) FROM question_sources s WHERE s.question_id = q.id) AS times_reported,
-           (SELECT array_agg(t.name ORDER BY t.name) FROM question_topics qt
+           -- COLLATE "C": the same order on every server (Neon and macOS Postgres sort
+           -- "SQL" vs "Sorting" differently by default), so exports don't change for nothing
+           (SELECT array_agg(t.name ORDER BY t.name COLLATE "C") FROM question_topics qt
               JOIN topics t ON t.id = qt.topic_id
               WHERE qt.question_id = q.id
                 AND (t.origin = 'seed' OR {TAG_SOURCES} >= {MIN_TAG_SOURCES})) AS topics,
-           (SELECT array_agg(src.url) FROM question_sources s
+           (SELECT array_agg(src.url ORDER BY src.id) FROM question_sources s
               JOIN sources src ON src.id = s.source_id WHERE s.question_id = q.id) AS urls
 """
 
