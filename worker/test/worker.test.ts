@@ -163,6 +163,12 @@ test("access rules", () => {
   assert.equal(hasAccess({ subscription_id: "s", status: "expired", current_end: 2000 }, t), false);
 });
 
+test("config is unavailable until Google and Razorpay are both configured", async () => {
+  const half = { ...env, GOOGLE_CLIENT_ID: "" } as Env;
+  const res = await worker.fetch(new Request("https://prepradar.test/api/config"), half);
+  assert.equal(res.status, 503);
+});
+
 test("config exposes only public values; other paths are static files", async () => {
   const c = await read(await call("GET", "/api/config"));
   assert.deepEqual(c, { google_client_id: CLIENT_ID, razorpay_key_id: "rzp_test_key",

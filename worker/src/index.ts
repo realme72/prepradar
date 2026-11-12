@@ -110,6 +110,11 @@ const meBody = (r: UserRecord | null) => ({
 let plan: Plan | null = null; // the price rarely changes; one fetch per isolate
 
 async function config(_req: Request, env: Env) {
+  // Half-configured (e.g. no Google client yet): the site says "opens soon" instead of
+  // showing a sign-in button that can't work.
+  if (!env.GOOGLE_CLIENT_ID || !env.RAZORPAY_KEY_ID || !env.RAZORPAY_PLAN_ID) {
+    throw new HttpError(503, "Accounts aren't set up yet");
+  }
   plan ??= await rzp(env).plan(env.RAZORPAY_PLAN_ID);
   return json({ google_client_id: env.GOOGLE_CLIENT_ID, razorpay_key_id: env.RAZORPAY_KEY_ID,
                 plan: { amount: plan.item.amount, currency: plan.item.currency, period: plan.period } });
