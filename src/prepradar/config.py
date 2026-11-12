@@ -10,6 +10,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/prepradar"
 MAX_PAGE_CHARS = 15_000  # one question-extraction call reads this much of a page
 MAX_CHUNKS = 4           # longer pages are read in up to this many chunks (60k chars)
 EXPERIENCE_CHARS = 60_000  # the experience call reads a page in one go, so a story isn't split
+# Pages read at once (fetch + AI calls). Saving stays one page at a time, so duplicate
+# and tag checks see everything saved before them. One at a time took ~70s a page.
+INGEST_WORKERS = int(os.getenv("INGEST_WORKERS", "6"))
 
 # cosine similarity at or above which two questions are the same question
 # (picked from real pairs: true rewrites scored 0.93+, "MongoDB vs MySQL schema" 0.87)

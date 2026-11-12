@@ -161,3 +161,11 @@ Half of each category was free, which gave away most of the value. Now anyone no
 - **A cron trigger, not a call from the workflow.** Every 5 minutes the Worker checks the companies someone is waiting for (on the site, nothing found, or failed) and notifies them. The workflow needs no new secret, and a run that dies without reporting still ends in a notice once the request expires.
 - **Push endpoints are checked against the known push services** (Google, Mozilla, Microsoft, Apple), so the Worker can't be made to post to an arbitrary URL.
 - **The ETA** is the queued time plus 20 minutes (Swiggy's first run took 21). After 30 minutes the panel just says it's taking longer than usual.
+
+## Collecting faster
+
+- **The first Actions run took 21 minutes**, nearly all of it waiting on AI calls made one at a time. From the `llm_usage` timestamps: tag checks ~10 min (91 calls), question extraction ~3, firsthand check ~2.3, stories ~2.3, duplicate check ~1.5.
+- **Pages are now read 6 at a time** (`INGEST_WORKERS`): fetch, firsthand check, then questions and story side by side. Saving stays one page at a time, so duplicate and tag checks still see everything saved before them. The same-post check moved after reading, since two URLs of one post can be in the same wave; it can waste one read, rarely.
+- **A page's tag checks run together, in parallel**, before its questions are saved. If an earlier tag on the page created a new one, the candidates differ, and that tag is asked again as before, so results match the one-at-a-time order.
+- **Token logging keeps one database connection** instead of opening one per call (about a second each to Neon).
+- Result: a comparable collection (Zomato, ~19 pages, 95 questions) took 3.4 minutes locally. GitHub runners are in the US and Neon is in Singapore, so saving is slower there; if it matters, moving the database to a US region is the next step.

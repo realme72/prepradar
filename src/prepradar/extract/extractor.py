@@ -1,5 +1,6 @@
 """Page text -> list[ExtractedQuestion] via OpenAI structured output."""
 import re
+import threading
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -21,26 +22,38 @@ def client() -> OpenAI:
     return _client
 
 
+_usage_conn = None
+_usage_lock = threading.Lock()  # pages are read in parallel threads
+
+
+def log_usage(model: str, purpose: str, u) -> None:
+    """A row in llm_usage. One connection for the whole run: a new one per call took
+    about a second each against the hosted database."""
+    global _usage_conn
+    from prepradar.store import db
+
+    with _usage_lock:
+        try:
+            if _usage_conn is None or _usage_conn.closed:
+                _usage_conn = db.connect()
+            _usage_conn.execute(
+                """INSERT INTO llm_usage (model, purpose, input_tokens, cached_tokens, output_tokens,
+                                          reasoning_tokens) VALUES (%s, %s, %s, %s, %s, %s)""",
+                (model, purpose, u.input_tokens, getattr(u.input_tokens_details, "cached_tokens", 0) or 0,
+                 u.output_tokens, getattr(u.output_tokens_details, "reasoning_tokens", 0) or 0),
+            )
+            _usage_conn.commit()
+        except Exception as e:  # e.g. table not created yet: run `prepradar init`
+            print(f"  (token usage not logged: {e})")
+            _usage_conn = None
+
+
 def parse(purpose: str, **kwargs):
     """client().responses.parse, plus a row in llm_usage with the tokens it used
     (`prepradar usage` sums them). Logging never fails the call."""
     resp = client().responses.parse(**kwargs)
-    u = resp.usage
-    if u is not None:
-        try:
-            from prepradar.store import db
-
-            with db.connect() as conn:
-                conn.execute(
-                    """INSERT INTO llm_usage (model, purpose, input_tokens, cached_tokens, output_tokens,
-                                              reasoning_tokens) VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (kwargs["model"], purpose, u.input_tokens,
-                     getattr(u.input_tokens_details, "cached_tokens", 0) or 0, u.output_tokens,
-                     getattr(u.output_tokens_details, "reasoning_tokens", 0) or 0),
-                )
-                conn.commit()
-        except Exception as e:  # e.g. table not created yet: run `prepradar init`
-            print(f"  (token usage not logged: {e})")
+    if resp.usage is not None:
+        log_usage(kwargs["model"], purpose, resp.usage)
     return resp
 
 

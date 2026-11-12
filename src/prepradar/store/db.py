@@ -116,18 +116,18 @@ REDUNDANT_TAGS = {c.lower() for c in Category.__args__} | {
 }
 
 
-def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool] | None:
-    """Map a proposed tag to a topic id. Returns (id, canonical name, created_new),
-    or None for a tag that merely restates a category or that the judge calls generic.
+UNDECIDED = object()  # _topic_lookup: the judge has to decide
 
-    judge(proposed, candidate_names) -> matching name, GENERIC_TAG, or None; called
-    for every tag that isn't an exact or near-identical match.
-    """
+
+def _topic_lookup(conn, name: str, category: str):
+    """resolve_topic's steps before the judge. Returns (answer, None, None) when they
+    settle it (answer: None for a redundant tag, else (id, name, False)), or
+    (UNDECIDED, embedding, candidate rows) when the judge must decide."""
     if name.lower() in REDUNDANT_TAGS:
-        return None
+        return None, None, None
     row = conn.execute("SELECT id, name FROM topics WHERE lower(name) = lower(%s)", (name,)).fetchone()
     if row:
-        return row["id"], row["name"], False
+        return (row["id"], row["name"], False), None, None
 
     vec = embed([name])[0]
     near = conn.execute(
@@ -135,12 +135,31 @@ def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool
         (vec, vec),
     ).fetchall()
     if near and near[0]["sim"] >= config.TOPIC_AUTO_MERGE:
-        return near[0]["id"], near[0]["name"], False
+        return (near[0]["id"], near[0]["name"], False), None, None
     # embeddings alone miss obvious matches ("Deployment Pipeline" never ranks
     # "CI/CD" top-3), so the judge also sees every tag in the question's category
     same_cat = conn.execute("SELECT id, name FROM topics WHERE category = %s", (category,)).fetchall()
     close = [r for r in near if r["sim"] >= config.TOPIC_CANDIDATE]
-    candidates = list({r["id"]: r for r in [*same_cat, *close]}.values())
+    return UNDECIDED, vec, list({r["id"]: r for r in [*same_cat, *close]}.values())
+
+
+def judge_input(conn, name: str, category: str) -> list[str] | None:
+    """The candidate tags resolve_topic would show the judge for this tag, or None if
+    it wouldn't ask. Lets a caller make the judge calls in advance, in parallel."""
+    answer, _, candidates = _topic_lookup(conn, name, category)
+    return [r["name"] for r in candidates] if answer is UNDECIDED else None
+
+
+def resolve_topic(conn, name: str, category: str, judge) -> tuple[int, str, bool] | None:
+    """Map a proposed tag to a topic id. Returns (id, canonical name, created_new),
+    or None for a tag that merely restates a category or that the judge calls generic.
+
+    judge(proposed, candidate_names) -> matching name, GENERIC_TAG, or None; called
+    for every tag that isn't an exact or near-identical match.
+    """
+    answer, vec, candidates = _topic_lookup(conn, name, category)
+    if answer is not UNDECIDED:
+        return answer
     # always ask before creating a tag: the judge also rejects generic ones
     same = judge(name, [r["name"] for r in candidates])
     if same == GENERIC_TAG:
