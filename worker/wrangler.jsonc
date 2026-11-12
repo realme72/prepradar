@@ -15,9 +15,9 @@
   // per-day request counts. Create each once with `npx wrangler kv namespace create
   // CONTENT` (and USERS, REQUESTS), and paste the ids here. The ids aren't secret.
   "kv_namespaces": [
-    { "binding": "CONTENT", "id": "REPLACE_WITH_CONTENT_NAMESPACE_ID" },
-    { "binding": "USERS", "id": "REPLACE_WITH_USERS_NAMESPACE_ID" },
-    { "binding": "REQUESTS", "id": "REPLACE_WITH_REQUESTS_NAMESPACE_ID" }
+    { "binding": "CONTENT", "id": "7c2d32c93d0d45649cfab9d495a0f908" },
+    { "binding": "USERS", "id": "646ba601d4b64ef7a9f520ecb4aa94dc" },
+    { "binding": "REQUESTS", "id": "f3e6ebdbce2248cbaac047227a4dc1c0" }
   ],
   // The repo whose collect workflow a company request starts (see GITHUB_TOKEN).
   "vars": { "GITHUB_REPO": "realme72/prepradar" }

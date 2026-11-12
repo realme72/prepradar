@@ -18,19 +18,25 @@ if (!files.length) {
   process.exit(1);
 }
 
-function wrangler(args, opts = {}) {
-  const r = spawnSync("npx", ["wrangler", "kv", "key", ...args, "--binding", "CONTENT", where],
-                      { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], ...opts });
+const run = (args, stderr = "inherit") =>
+  spawnSync("npx", ["wrangler", "kv", "key", ...args, "--binding", "CONTENT", where],
+            { encoding: "utf8", stdio: ["ignore", "pipe", stderr] });
+
+function wrangler(args) {
+  const r = run(args);
   if (r.status !== 0) process.exit(r.status ?? 1);
   return r.stdout;
 }
 
+// No manifest yet (first upload) is an error on Cloudflare but not in the local store;
+// either way it means "nothing uploaded so far".
 let manifest = {};
 if (!process.argv.includes("--all")) {
+  const r = run(["get", "manifest", "--text"], "ignore");
   try {
-    manifest = JSON.parse(wrangler(["get", "manifest", "--text"], { stdio: ["ignore", "pipe", "ignore"] }));
+    manifest = r.status === 0 ? JSON.parse(r.stdout) : {};
   } catch {
-    manifest = {}; // first upload: no manifest yet
+    manifest = {};
   }
 }
 
