@@ -139,7 +139,7 @@ A full collection takes 3–10 minutes, and people searching a company won't wai
 
 - **Quick live pass in the Worker.** It runs one Tavily search, limited to write-up sites (GeeksforGeeks, Medium, Reddit, LinkedIn posts, Glassdoor, AmbitionBox…). An open web search mostly returned "top 50 interview questions" articles.
 - **One streamed call per page, in parallel.** A single call over all pages took about 12s to its first question, because the model reads everything before writing. Per-page calls take about 1s after the search, so the first question appears in about 2–5s. Output is one JSON object per line, so each question can be forwarded the moment it's complete.
-- **Lower bar than the collector, and labelled as such.** There's no firsthand check per page, no tags and no deduplication beyond exact text. A regex drops lines that describe a round or only name a problem type ("solve a problem involving arrays"); the model kept writing those despite the rules. The full collection replaces the quick results 15–25 minutes later (the first real run, Swiggy, took 21 minutes for 131 questions).
+- **Lower bar than the collector, and labelled as such.** There's no firsthand check per page, no tags and no deduplication beyond exact text. A regex drops lines that describe a round or only name a problem type ("solve a problem involving arrays"); the model kept writing those despite the rules. The full collection replaces the quick results about 5–12 minutes later (21 before collecting went parallel).
 - **Cost guard.** Under ₹1 per quick pass. It needs sign-in and is capped: 5 per user per day (15 for subscribers), 100 for the site. Results are cached for 14 days, so a popular company costs once.
 - **Nightly pre-collection.** `companies.txt` lists about 150 companies people interview for in India. The nightly job takes the next N not yet tried, so most searches are instant within a few weeks.
 
@@ -160,7 +160,7 @@ Half of each category was free, which gave away most of the value. Now anyone no
 - **The push is empty.** Encrypting a payload per browser (RFC 8291) is a lot of crypto for one line of text. The message waits in KV under the subscription, and the service worker fetches it when the push wakes it. Only the VAPID signature is needed.
 - **A cron trigger, not a call from the workflow.** Every 5 minutes the Worker checks the companies someone is waiting for (on the site, nothing found, or failed) and notifies them. The workflow needs no new secret, and a run that dies without reporting still ends in a notice once the request expires.
 - **Push endpoints are checked against the known push services** (Google, Mozilla, Microsoft, Apple), so the Worker can't be made to post to an arbitrary URL.
-- **The ETA** is the queued time plus 20 minutes (Swiggy's first run took 21). After 30 minutes the panel just says it's taking longer than usual.
+- **The ETA** is the queued time plus 10 minutes (runs take 4–12). After 20 minutes the panel just says it's taking longer than usual.
 
 ## Collecting faster
 
@@ -168,4 +168,4 @@ Half of each category was free, which gave away most of the value. Now anyone no
 - **Pages are now read 6 at a time** (`INGEST_WORKERS`): fetch, firsthand check, then questions and story side by side. Saving stays one page at a time, so duplicate and tag checks still see everything saved before them. The same-post check moved after reading, since two URLs of one post can be in the same wave; it can waste one read, rarely.
 - **A page's tag checks run together, in parallel**, before its questions are saved. If an earlier tag on the page created a new one, the candidates differ, and that tag is asked again as before, so results match the one-at-a-time order.
 - **Token logging keeps one database connection** instead of opening one per call (about a second each to Neon).
-- Result: a comparable collection (Zomato, ~19 pages, 95 questions) took 3.4 minutes locally. GitHub runners are in the US and Neon is in Singapore, so saving is slower there; if it matters, moving the database to a US region is the next step.
+- Result: a comparable collection (Zomato, ~19 pages, 95 questions) took 3.4 minutes locally. On Actions, refreshing all 10 companies took 3–10 minutes of collecting each (4–12 from request to live site), against 21 before.

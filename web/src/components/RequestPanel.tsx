@@ -13,9 +13,9 @@ type Quick = Pick<QuickResult, "sources" | "questions">;
 type Phase = "idle" | "searching" | "streaming" | "done";
 
 const POLL_MS = 30_000;
-// How long a full collection takes on GitHub Actions (Swiggy: 21 minutes).
-const TYPICAL_MIN = 20;
-const SLOW_MIN = 30;
+// How long a full collection takes on GitHub Actions, request to live (10 refreshes: 4–12 minutes).
+const TYPICAL_MIN = 10;
+const SLOW_MIN = 20;
 
 // "Ready around 3:45 PM (about 18 minutes)", from when the collection was queued.
 function eta(queuedAt: number, nowMs: number) {
@@ -34,7 +34,7 @@ function hostOf(url: string) {
 // A company that isn't on the site yet. Two things happen when someone asks for it:
 //  - the quick pass: one web search and one AI read, streamed, so questions start
 //    appearing within seconds (and are cached for the next visitor);
-//  - the full collection on GitHub Actions (15–25 minutes), which checks every source,
+//  - the full collection on GitHub Actions (about 5–12 minutes), which checks every source,
 //    merges duplicates, adds candidate stories and a guide, then republishes the site.
 //    The panel shows when to come back, and can send a browser notification when it's done.
 //
