@@ -15,10 +15,14 @@ import { reloadIndex } from "./static";
 
 type View = "questions" | "experiences" | "guide";
 
+const DEFAULT_COMPANY = "amazon";
+
 export default function App() {
   // State: values that, when changed, make React re-render this component.
   // App owns them because several children need them ("lifting state up").
-  const [company, setCompany] = useState<string | null>(null);
+  // A first visit opens Amazon (the company with the most questions) rather than an
+  // empty page; the picker changes it.
+  const [company, setCompany] = useState<string | null>(DEFAULT_COMPANY);
   // A company typed in the picker that isn't on the site yet.
   const [requested, setRequested] = useState<string | null>(null);
   // Local dev: the run box, opened by such a request with the name filled in.

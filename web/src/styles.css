@@ -257,7 +257,15 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 .chip.logout { background: var(--magenta); box-shadow: var(--glow-magenta); }
 .chip.cancel { background: #ff8fa3; box-shadow: 0 0 6px rgba(255, 143, 163, 0.35); }
 .small { font-size: 0.75rem; }
-.google-btn { min-height: 32px; }
+/* Google draws its button in its own frame (its branding rules don't allow restyling
+   it). With the page in dark mode the browser paints that frame an opaque white box;
+   matching Google's light scheme keeps the frame transparent. The neon ring is ours. */
+.google-btn {
+  color-scheme: light; display: inline-flex; min-height: 32px; border-radius: 999px;
+  box-shadow: 0 0 0 1px var(--cyan), var(--glow-cyan); transition: box-shadow 0.15s;
+}
+.google-btn:hover { box-shadow: 0 0 0 1px var(--cyan), 0 0 10px rgba(0, 240, 255, 0.7), 0 0 26px rgba(0, 240, 255, 0.35); }
+.google-btn:empty { box-shadow: none; } /* before Google's script has drawn it */
 
 .paywall {
   display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
