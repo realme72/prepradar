@@ -142,3 +142,7 @@ A full collection takes 3–10 minutes, and people searching a company won't wai
 - **Lower bar than the collector, and labelled as such.** There's no firsthand check per page, no tags and no deduplication beyond exact text. A regex drops lines that describe a round or only name a problem type ("solve a problem involving arrays"); the model kept writing those despite the rules. The full collection replaces the quick results about 10 minutes later.
 - **Cost guard.** Under ₹1 per quick pass. It needs sign-in and is capped: 5 per user per day (15 for subscribers), 100 for the site. Results are cached for 14 days, so a popular company costs once.
 - **Nightly pre-collection.** `companies.txt` lists about 150 companies people interview for in India. The nightly job takes the next N not yet tried, so most searches are instant within a few weeks.
+
+## Free tier cut to 2 questions per company
+
+Half of each category was free, which gave away most of the value. Now anyone not subscribed, signed in or not, sees each company's 2 most reported questions and 2 newest stories. Everything else, including vague reports and every prep guide, is in the subscriber file served from KV. The public file only shows that a guide exists. Signing in alone unlocks nothing; it's needed to subscribe and for quick searches.

@@ -8,14 +8,15 @@
 //   POST /api/subscription/verify    confirm checkout, record the subscription
 //   POST /api/subscription/cancel    stop renewing (access lasts to the period's end)
 //   POST /api/razorpay/webhook       renewals, failures, cancellations from Razorpay
-//   GET  /api/content?company=…      a company's locked content, for subscribers
+//   GET  /api/content?company=…      everything beyond the public file, for subscribers
 //   POST /api/requests {company}     collect a company that isn't on the site yet
 //   GET  /api/requests?company=…     how that request is going
 //   POST /api/quick {company}        quick live pass: streams a first set of questions in
 //                                    seconds (NDJSON), and starts the full collection
 //   GET  /api/quick?company=…        the last quick pass for a company, if any
 //
-// Storage is three KV namespaces: CONTENT (locked data, uploaded by `npm run data:upload`),
+// Storage is three KV namespaces: CONTENT ("company:<company>": what only subscribers
+// see, uploaded by `npm run data:upload`),
 // USERS (one record per Google user id: their subscription, nothing else) and REQUESTS
 // (companies being collected, and per-day request counts).
 //
@@ -188,6 +189,7 @@ async function webhook(req: Request, env: Env) {
   return json({ ok: true });
 }
 
+// Signing in alone unlocks nothing (the public file's 2 questions are for everyone).
 async function content(req: Request, env: Env) {
   const user = await signedInUser(req, env);
   if (!hasAccess(await current(env, user), now())) throw new HttpError(402, "Subscribe to see everything");

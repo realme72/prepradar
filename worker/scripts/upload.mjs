@@ -1,5 +1,6 @@
-// Upload each company's locked content (private/<company>.json, written by `prepradar
-// export`) to the CONTENT KV namespace. Local dev store by default; --remote for live.
+// Upload each company's subscriber-only content (private/<company>.json, written by
+// `prepradar export`) to the CONTENT KV namespace as "company:<company>". Local dev store
+// by default; --remote for live.
 //
 // Only files that changed since the last upload are sent: a "manifest" key holds each
 // company's content hash. KV's free plan allows 1,000 writes a day, and every new-company
@@ -12,7 +13,8 @@ import { join } from "node:path";
 
 const dir = decodeURIComponent(new URL("../../private/", import.meta.url).pathname);
 const where = process.argv.includes("--remote") ? "--remote" : "--local";
-const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+// [KV key, file path]
+const files = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => [`company:${f.slice(0, -5)}`, join(dir, f)]);
 if (!files.length) {
   console.error("No locked-content files; run `uv run prepradar export` first.");
   process.exit(1);
@@ -42,14 +44,13 @@ if (!process.argv.includes("--all")) {
 
 const next = { ...manifest };
 let sent = 0;
-for (const f of files) {
-  const id = f.replace(/\.json$/, "");
-  const hash = createHash("sha256").update(readFileSync(join(dir, f))).digest("hex");
-  if (manifest[id] === hash) continue;
-  wrangler(["put", `company:${id}`, "--path", join(dir, f)]);
-  next[id] = hash;
+for (const [key, path] of files) {
+  const hash = createHash("sha256").update(readFileSync(path)).digest("hex");
+  if (manifest[key] === hash) continue;
+  wrangler(["put", key, "--path", path]);
+  next[key] = hash;
   sent += 1;
-  console.log(`uploaded company:${id} (${where.slice(2)})`);
+  console.log(`uploaded ${key} (${where.slice(2)})`);
 }
 if (sent) wrangler(["put", "manifest", JSON.stringify(next)]);
-console.log(`${sent} of ${files.length} companies changed`);
+console.log(`${sent} of ${files.length} files changed`);

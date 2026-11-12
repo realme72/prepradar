@@ -1,19 +1,17 @@
-"""Publishing the free live site's data.
+"""Publishing the live site's data, in two tiers per company:
 
-    export   database -> web/public/data/*.json (public: anyone can download these)
-             and private/<company>.json (subscribers only: the Worker serves it from
-             KV to signed-in users with an active subscription).
+    open         web/public/data/<company>.json, public: anyone can download it.
+                 The OPEN_QUESTIONS most reported questions and OPEN_STORIES newest
+                 stories in full; every other item, and every guide, only as an outline.
+    subscribers  private/<company>.json -> KV "company:<company>". Everything else,
+                 including vague reports and full guides.
 
-What's free in every company: the first half of each category's questions (most
-reported first), the newest FREE_STORIES candidate stories per function, and the
-opening sections of each guide. Locked items stay in the public file only as
-outlines (category, topics, outcome...), never their text, so the blurred cards on
-the site can't be read with "inspect element".
+Outlines carry category, topics, outcome and the like, never text or sources, so the
+blurred cards on the site can't be read with "inspect element". Signing in alone
+unlocks nothing: it's needed to subscribe (and for quick searches).
 """
 import base64
 import json
-import math
-import re
 from datetime import date
 from pathlib import Path
 
@@ -26,9 +24,8 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "web" / "public" / "data"
 PRIVATE_DIR = ROOT / "private"
 
-FREE_SHARE = 0.5          # of each category's specific questions, most reported first
-FREE_STORIES = 3          # newest candidate stories per function, shown in full for free
-FREE_GUIDE_SECTIONS = 3   # "At a glance", "Process" and the first category section
+OPEN_QUESTIONS = 2        # per company, readable without signing in
+OPEN_STORIES = 2          # newest, per company, readable without signing in
 
 
 def _quantise(vec) -> str:
@@ -36,20 +33,6 @@ def _quantise(vec) -> str:
     product barely changes: the vectors are normalised, so x*127 keeps 2-3 digits."""
     vec = np.asarray(vec.to_numpy() if hasattr(vec, "to_numpy") else vec, dtype=np.float32)
     return base64.b64encode(np.clip(np.round(vec * 127), -127, 127).astype(np.int8).tobytes()).decode()
-
-
-def guide_preview(md: str) -> str:
-    """The free part of a guide: the first sections, then a note naming the rest.
-    'Cited questions' and 'Sources' stay so [Q#]/[S#] links in the preview still work."""
-    parts = re.split(r"(?m)^(?=## )", md)
-    head, sections = parts[0], parts[1:]
-    heading = lambda s: s.split("\n", 1)[0].removeprefix("## ").strip()
-    keep = {"Cited questions", "Sources"}
-    rest = sections[FREE_GUIDE_SECTIONS:]
-    locked = [s for s in rest if heading(s) not in keep]
-    note = (f"## 🔒 {len(locked)} more sections for subscribers\n\n"
-            + ", ".join(heading(s) for s in locked) + "\n\n") if locked else ""
-    return head + "".join(sections[:FREE_GUIDE_SECTIONS]) + note + "".join(s for s in rest if heading(s) in keep)
 
 
 def _company_questions(conn, company: str) -> list[dict]:
@@ -70,18 +53,13 @@ def _company_stories(conn, company: str) -> list[dict]:
     ).fetchall()
 
 
-def free_question_ids(questions: list[dict]) -> set[int]:
-    """The first half (rounded up) of each function + category's specific questions,
-    ranked the way the site lists them. Vague reports are all free: they name no problem."""
-    groups: dict[tuple[str, str], list[dict]] = {}
-    for q in questions:
-        if q["specific"]:
-            groups.setdefault((q["function"], q["category"]), []).append(q)
-    free = {q["id"] for q in questions if not q["specific"]}
-    for qs in groups.values():
-        qs.sort(key=lambda q: (-q["times_reported"], -(q["interview_year"] or q["posted_year"] or 0), q["id"]))
-        free |= {q["id"] for q in qs[: math.ceil(len(qs) * FREE_SHARE)]}
-    return free
+def _rank(q: dict):
+    return (-q["times_reported"], -(q["interview_year"] or q["posted_year"] or 0), q["id"])
+
+
+def open_question_ids(questions: list[dict]) -> set[int]:
+    """The company's OPEN_QUESTIONS most reported specific questions: the signed-out view."""
+    return {q["id"] for q in sorted((q for q in questions if q["specific"]), key=_rank)[:OPEN_QUESTIONS]}
 
 
 def question_outline(q: dict) -> dict:
@@ -97,11 +75,16 @@ def story_outline(story: dict) -> dict:
                                   "outcome", "difficulty")} | {"rounds_count": len(story["rounds"]), "locked": True}
 
 
+def guide_outline(g: dict) -> dict:
+    """A guide on the public site: that it exists for these filters, not its text."""
+    return {k: g[k] for k in ("function", "position", "track", "since")} | {"markdown": "", "locked": True}
+
+
 def export(out_dir: Path = DATA_DIR, private_dir: Path = PRIVATE_DIR) -> dict:
-    """Write index.json and, per company, a public <company>.json and a private one.
+    """Write index.json and, per company, the open and subscriber files.
     Returns {company: question count}."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    private_dir.mkdir(parents=True, exist_ok=True)
+    for d in (out_dir, private_dir):
+        d.mkdir(parents=True, exist_ok=True)
     written = {}
     with db.connect() as conn:
         companies = conn.execute(
@@ -110,26 +93,21 @@ def export(out_dir: Path = DATA_DIR, private_dir: Path = PRIVATE_DIR) -> dict:
         for c in companies:
             name = c["company"]
             questions = _company_questions(conn, name)
-            free_q = free_question_ids(questions)
+            open_q = open_question_ids(questions)
             stories = _company_stories(conn, name)
-            seen: dict[str, int] = {}
-            free_s = set()
-            for s in stories:  # newest first
-                seen[s["function"]] = seen.get(s["function"], 0) + 1
-                if seen[s["function"]] <= FREE_STORIES:
-                    free_s.add(s["id"])
+            open_s = {s["id"] for s in stories[:OPEN_STORIES]}  # newest first
             guides = db.company_guides(conn, name)
 
             public = {
                 "company": name,
-                "questions": [q if q["id"] in free_q else question_outline(q) for q in questions],
-                "experiences": [s if s["id"] in free_s else story_outline(s) for s in stories],
-                "guides": [g | {"markdown": guide_preview(g["markdown"]), "locked": True} for g in guides],
+                "questions": [q if q["id"] in open_q else question_outline(q) for q in questions],
+                "experiences": [s if s["id"] in open_s else story_outline(s) for s in stories],
+                "guides": [guide_outline(g) for g in guides],
             }
             private = {
                 "company": name,
-                "questions": [q for q in questions if q["id"] not in free_q],
-                "experiences": [s for s in stories if s["id"] not in free_s],
+                "questions": [q for q in questions if q["id"] not in open_q],
+                "experiences": [s for s in stories if s["id"] not in open_s],
                 "guides": guides,
             }
             (out_dir / f"{name}.json").write_text(json.dumps(public, default=str, separators=(",", ":")))

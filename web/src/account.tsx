@@ -125,9 +125,9 @@ export function AccountBar() {
           <button className="link small" onClick={() => setConfirming(false)}>Keep</button>
         </span>
       ) : (
-        <button className="link small" onClick={() => setConfirming(true)}>Cancel plan</button>
+        <button className="chip cancel" onClick={() => setConfirming(true)}>Cancel plan</button>
       ))}
-      <button className="link small" onClick={signOut}>Log out</button>
+      <button className="chip logout" onClick={signOut}>Log out</button>
     </div>
   );
 }
@@ -154,8 +154,8 @@ export function Paywall({ what }: { what: string }) {
     <div className="paywall">
       <div className="paywall-text">
         <span className="pack-kicker">🔒 {what}</span>
-        <p>Every question, every candidate story with its round-by-round timeline, and full prep guides, for all
-           companies.{price && ` ${price}, cancel anytime.`}</p>
+        <p>Every question, every candidate story with its round-by-round timeline, and the complete prep guide, for
+           all companies.{price && ` ${price}, cancel anytime.`}</p>
       </div>
       {!account.config ? (
         <span className="muted small">Subscriptions open soon.</span>

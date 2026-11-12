@@ -80,7 +80,7 @@ function kv() {
 const USERS = kv();
 const CONTENT = kv();
 const REQUESTS = kv();
-CONTENT.map.set("company:amazon", JSON.stringify({ company: "amazon", questions: [{ id: 9, text: "locked" }] }));
+CONTENT.map.set("company:amazon", JSON.stringify({ questions: [{ id: 9, text: "locked" }], experiences: [], guides: [{ markdown: "full" }] }));
 const pending: Promise<unknown>[] = [];
 const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} } as unknown as ExecutionContext;
 const env = {
@@ -129,14 +129,15 @@ test("Google sign-in gives a session; forged or foreign tokens don't", async () 
   assert.equal(USERS.map.size, 0); // signing in stores nothing
 });
 
-test("locked content needs a session and an active subscription", async () => {
+test("locked content needs a subscription; signing in alone unlocks nothing", async () => {
   assert.equal((await call("GET", "/api/content?company=amazon")).status, 401);
   const token = await signIn();
   assert.equal((await call("GET", "/api/content?company=amazon", undefined, token)).status, 402);
   const { res } = await subscribeAndPay(token);
   assert.deepEqual(await read(res), { access: true, status: "active", current_end: (await read(await call("GET", "/api/me", undefined, token))).current_end, cancel_at_end: false });
   const content = await read(await call("GET", "/api/content?company=amazon", undefined, token));
-  assert.equal(content.questions[0].text, "locked");
+  assert.deepEqual(content.questions.map((q: any) => q.text), ["locked"]);
+  assert.equal(content.guides[0].markdown, "full");
   // stored about the user: their subscription, keyed by Google's id; no name or email
   assert.ok(!JSON.stringify([...USERS.map]).includes("example.com") && !JSON.stringify([...USERS.map]).includes("Test User"));
 });

@@ -2,7 +2,7 @@
 
 The live site is one Cloudflare Worker:
 
-- **Static files:** the React app plus `data/*.json`, exported from your database. Free visitors see half of each category's questions, 3 stories per function and guide previews. Search runs in the browser.
+- **Static files:** the React app plus `data/*.json`, exported from your database. Visitors who aren't subscribed (signed in or not) see each company's 2 most reported questions and its 2 newest stories. Everything else, including prep guides, is subscribers only. Search runs in the browser.
 - **`/api` routes:**
   - **Google sign-in:** the Worker checks Google's signed token and issues its own session.
   - **₹49/month Razorpay subscriptions:** checkout, verify, cancel, and webhooks for renewals and failures.

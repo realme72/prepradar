@@ -35,8 +35,9 @@ export function GuideTab({ url, version }: Props) {
   if (guide.data) {
     return (
       <>
-        {guide.data.locked && <Paywall what="The rest of this guide" />}
-        <GuideView markdown={guide.data.markdown} />
+        {guide.data.locked && <Paywall what="The complete prep guide" />}
+        {/* non-subscribers only learn that a guide exists; its text isn't in their data */}
+        {guide.data.markdown && <GuideView markdown={guide.data.markdown} />}
       </>
     );
   }

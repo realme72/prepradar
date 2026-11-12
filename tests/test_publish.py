@@ -1,4 +1,4 @@
-from prepradar.publish import free_question_ids, guide_preview, question_outline, story_outline
+from prepradar.publish import guide_outline, open_question_ids, question_outline, story_outline
 
 GUIDE = """# Amazon interview prep
 
@@ -25,14 +25,6 @@ OA then loops.
 """
 
 
-def test_guide_preview_keeps_the_first_sections_and_the_citations():
-    p = guide_preview(GUIDE)
-    assert "## DSA" in p and "Rotten Oranges" in p
-    assert "Design an auction platform" not in p and "Practise graphs" not in p
-    assert "🔒 2 more sections for subscribers" in p and "HLD, Prep checklist" in p
-    assert "## Cited questions" in p and "## Sources" in p
-
-
 def test_a_locked_story_carries_no_content():
     story = {"id": 1, "function": "Engineering", "position": "SDE 2", "track": "Backend", "interview_year": 2025,
              "posted_year": None, "outcome": "Offer", "difficulty": "Hard", "summary": "secret",
@@ -50,16 +42,17 @@ def q(id, cat="DSA", reported=1, specific=True, fn="Engineering"):
             "e": "AAAA"}
 
 
-def test_half_of_each_category_is_free_most_reported_first():
-    qs = [q(1), q(2, reported=3), q(3), q(4, cat="HLD"), q(5, cat="HLD"), q(6, cat="HLD"), q(7, specific=False)]
-    free = free_question_ids(qs)
-    assert 2 in free                      # the most reported DSA question
-    assert len(free & {1, 2, 3}) == 2     # ceil(3 / 2)
-    assert len(free & {4, 5, 6}) == 2
-    assert 7 in free                      # vague reports are free
-
-
 def test_a_locked_question_carries_no_text_sources_or_embedding():
     o = question_outline(q(9))
     assert "secret" not in str(o) and "https://x" not in str(o) and "e" not in o
     assert o["locked"] is True and o["category"] == "DSA"
+
+
+def test_signed_out_visitors_get_the_two_most_reported_questions_only():
+    qs = [q(1), q(2, reported=3), q(3, cat="HLD", reported=2), q(4, cat="HLD"), q(5, specific=False, reported=9)]
+    assert open_question_ids(qs) == {2, 3}  # across categories; vague reports never count
+
+
+def test_a_public_guide_says_only_that_it_exists():
+    g = guide_outline({"function": "Engineering", "position": "", "track": "Backend", "since": None, "markdown": GUIDE})
+    assert g["markdown"] == "" and g["locked"] is True and g["track"] == "Backend"

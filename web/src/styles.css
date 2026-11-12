@@ -247,6 +247,15 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 .avatar { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--cyan); }
 .who { color: var(--text); }
 .pro { color: #001014; background: var(--cyan); padding: 1px 7px; border-radius: 2px; font-weight: 700; box-shadow: var(--glow-cyan); }
+/* Same shape as the PRO badge, so the header reads as one row of chips; colour says
+   what each does. Not cyan, so they don't look like more badges. */
+.chip {
+  font: inherit; font-weight: 700; padding: 1px 7px; border-radius: 2px; border: none; cursor: pointer;
+  color: #001014; transition: filter 0.15s, box-shadow 0.15s;
+}
+.chip:hover { filter: brightness(1.12); }
+.chip.logout { background: var(--magenta); box-shadow: var(--glow-magenta); }
+.chip.cancel { background: #ff8fa3; box-shadow: 0 0 6px rgba(255, 143, 163, 0.35); }
 .small { font-size: 0.75rem; }
 .google-btn { min-height: 32px; }
 
