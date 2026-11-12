@@ -74,8 +74,9 @@ Rules:
 - Never invent questions. If the pages report none, output nothing.
 - At most 15 questions, in the order the page reports them. No duplicates.
 
-Output one JSON object per line and nothing else (no array, no code fences). If the page shows when it
-was posted or last updated, start with {"posted": "YYYY-MM"} (never guess the date). Then one per question:
+Output JSON objects, each on its own line, and nothing else (no array, no code fences). If the page shows
+when it was posted or last updated, the first line is {"posted": "YYYY-MM"} (never guess the date). Then
+one line per question:
 {"q": "<question>", "category": "<one of: ${CATEGORIES.join(", ")}>"}`;
   return { system, user: `${page.title} (${page.url})\n\n${page.text}` };
 }
@@ -85,6 +86,8 @@ was posted or last updated, start with {"posted": "YYYY-MM"} (never guess the da
 const VAGUE = [
   /^(the|these|this|those)\s+(\w+\s+){0,2}(questions?|rounds?|tests?|interviews?)\b/i,
   /^(solve|asked|given)\s+(a|an|one|two|some)?\s*(\w+\s+)?(problems?|questions?)\s+(involving|based on|on|about|related to|using)\b/i,
+  // only the kind of problem: "Solve an easy array-based coding problem."
+  /^(solve|implement|write|code)\s+(a|an|one|two|some)\s+([\w-]+\s+){0,4}(problems?|questions?)\.?$/i,
 ];
 
 export const isVague = (text: string) => VAGUE.some((r) => r.test(text));
@@ -167,7 +170,8 @@ async function streamLines({ system, user }: { system: string; user: string }, k
       } catch {
         continue;
       }
-      const lines = text.split("\n");
+      // the model sometimes runs objects together ({...}{...}) instead of one per line
+      const lines = text.replace(/}\s*{/g, "}\n{").split("\n");
       text = lines.pop() ?? "";
       for (const line of lines) await onLine(line);
     }

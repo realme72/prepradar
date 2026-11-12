@@ -56,7 +56,8 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   if (url.hostname === "api.openai.com") {
     // a streamed reply whose lines are split across events, as the real API does
-    const text = '{"posted": "2025-03"}\n{"q": "Reverse a singly linked list.", "category": "DSA"}\n{"q": "Design an LRU cache.", "categ' +
+    // objects run together on one line, as gpt-4o-mini sometimes writes them
+    const text = '{"posted": "2025-03"}{"q": "Reverse a singly linked list.", "category": "DSA"} {"q": "Design an LRU cache.", "categ' +
                  'ory": "LLD"}\nHere is a line that isn\'t JSON\n{"q": "Reverse a singly-linked list!", "category": "DSA"}\n';
     const events = text.match(/.{1,20}/gs)!.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
     return new Response(events.join("") + "data: [DONE]\n\n", { status: 200 });
@@ -287,11 +288,12 @@ test("quick-pass helpers", () => {
   assert.equal(parseLine('{"q": "What is a mutex?", "category": "Backend"}', 2)?.source, 2);
   assert.equal(parseLine("Here are the questions:", 2), null);
   for (const vague of ["The SQL questions tested query writing.", "Solve a problem involving arrays and combinatorics.",
-                       "Solve a problem based on Dynamic Programming and Binary Search.", "These rounds were hard."]) {
+                       "Solve a problem based on Dynamic Programming and Binary Search.", "These rounds were hard.",
+                       "Solve an easy array-based coding problem.", "Solve a stack-based DSA problem."]) {
     assert.equal(parseLine(JSON.stringify({ q: vague, category: "DSA" }), 0), null, vague);
   }
   for (const real of ["Solve the Stocks Buy and Sell problem.", "Given a sorted infinite stream, check if a number is present.",
-                      "Solve N-Queens."]) {
+                      "Solve N-Queens.", "Solve the Sliding Window Median problem using a min heap and a max heap."]) {
     assert.ok(parseLine(JSON.stringify({ q: real, category: "DSA" }), 0), real);
   }
   const now = new Date("2026-11-13");
