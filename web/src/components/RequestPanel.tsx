@@ -163,7 +163,7 @@ export function RequestPanel({ name, onReady }: Props) {
 
       {status === "queued" && (
         <p className="muted small"><span className="pulse" aria-hidden /> Full analysis running: every source checked,
-           duplicates merged, candidate stories and a prep guide. About 10 minutes; this page updates by itself.</p>
+           duplicates merged, candidate stories and a prep guide. Usually 15–25 minutes; this page updates by itself, or come back later.</p>
       )}
       {status === "empty" && (
         <p className="muted small">The full collection found no interview write-ups for {name}. Check the spelling, or
