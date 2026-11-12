@@ -18,6 +18,10 @@ visitor types "swiggy" ─▶ Worker /api/requests (signed in, under the daily c
 page polls /api/requests every 30s ─▶ "ready" once swiggy is in the published index
 ```
 
+**Fast answers.** Two things keep visitors from waiting the ~10 minutes:
+- **Quick live pass (`/api/quick`).** The Worker runs one web search, limited to sites where candidates post write-ups. It then streams one OpenAI call per page in parallel, so the first questions show in about 2–5 seconds and 40 are in by about 9. The result is cached for 14 days, so the next visitor gets it instantly. The full collection starts at the same time and replaces it. Needs the `OPENAI_API_KEY` and `TAVILY_API_KEY` Worker secrets. Caps (`QUICK_LIMIT`): 5 per user per day (15 for subscribers), 100 for the whole site.
+- **Nightly pre-collection** (`.github/workflows/nightly.yml`). Each night at 02:00 IST it collects the next few companies from `companies.txt` that aren't on the site yet. The repo variable `NIGHTLY_COMPANIES` sets how many (default 5; 0 pauses it).
+
 Caps, in `worker/src/index.ts` (`DAILY_LIMIT`): 2 new companies per signed-in user per day (5 for subscribers), 20 for the whole site. A company found empty can't be requested again for a week. Each collection costs a few rupees of OpenAI and search credit; `uv run prepradar usage` shows the totals.
 
 ```
@@ -104,7 +108,9 @@ Open the local site at **http://localhost:8787**, not 127.0.0.1. Google only acc
    - Permissions: Actions → Read and write. Nothing else.
 
    Then run `npx wrangler secret put GITHUB_TOKEN` in `worker/`. `GITHUB_REPO` is set in `wrangler.jsonc`.
-4. Create the third KV namespace: `npx wrangler kv namespace create REQUESTS`. Paste its id into `wrangler.jsonc`.
+4. For the quick live pass, give the Worker the same OpenAI and Tavily keys:
+   `npx wrangler secret put OPENAI_API_KEY` and `npx wrangler secret put TAVILY_API_KEY`.
+5. Create the third KV namespace: `npx wrangler kv namespace create REQUESTS`. Paste its id into `wrangler.jsonc`.
 
 Until `GITHUB_TOKEN` is set, the site says "Requesting new companies opens soon." Without it, the companies you add from your laptop still go live with the usual export, build, upload and deploy.
 

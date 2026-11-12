@@ -166,6 +166,7 @@ export default function App() {
         counts={scopeCounts.data ?? []}
         onCompany={pickCompany}
         onRequest={requestCompany}
+        requested={requested}
         onScope={(s) => {
           setScope(s);
           pickCategory(null);

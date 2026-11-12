@@ -1,0 +1,37 @@
+# Each night, collects the next few companies from companies.txt that aren't on the site
+# yet, so most searches find a company already there instead of waiting ~10 minutes.
+# Each company runs as its own "collect" workflow (which also republishes the site).
+#
+# How many per night: the repository variable NIGHTLY_COMPANIES (default 5). Each costs
+# roughly ₹3–8 of OpenAI and search credit; set it to 0 to pause.
+name: nightly
+
+on:
+  schedule:
+    - cron: "30 20 * * *"  # 02:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write  # to start the collect workflow
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GH_TOKEN: ${{ github.token }}
+      PER_NIGHT: ${{ vars.NIGHTLY_COMPANIES || 5 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick and start the next companies
+        run: |
+          # a company with any source row has been tried (found or not); skip it
+          psql "$DATABASE_URL" -tAc "SELECT DISTINCT company FROM sources" | sort -u > tried.txt
+          grep -vE '^\s*(#|$)' companies.txt | awk '!seen[$0]++' | grep -vxFf tried.txt | head -n "$PER_NIGHT" > next.txt || true
+          echo "Starting: $(paste -sd, next.txt)"
+          while IFS= read -r company; do
+            gh workflow run collect.yml -f company="$company"
+            sleep 5
+          done < next.txt

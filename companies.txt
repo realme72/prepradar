@@ -1,0 +1,158 @@
+# Companies the nightly job collects ahead of time, most searched first, so a search
+# for them is instant. Lowercase, one per line. Already-collected ones are skipped.
+# Add or reorder freely; .github/workflows/nightly.yml takes the next few each night.
+flipkart
+swiggy
+zomato
+phonepe
+paytm
+microsoft
+meesho
+cred
+uber
+atlassian
+adobe
+salesforce
+oracle
+walmart
+goldman sachs
+morgan stanley
+deloitte
+accenture
+tcs
+infosys
+wipro
+hcltech
+tech mahindra
+cognizant
+capgemini
+ibm
+intuit
+nvidia
+apple
+meta
+netflix
+stripe
+paypal
+visa
+mastercard
+american express
+barclays
+deutsche bank
+wells fargo
+citi
+hsbc
+ubs
+de shaw
+tower research
+graviton
+sprinklr
+freshworks
+zoho
+browserstack
+postman
+groww
+zerodha
+upstox
+dream11
+mpl
+ola
+rapido
+dunzo
+blinkit
+zepto
+bigbasket
+nykaa
+myntra
+ajio
+lenskart
+urban company
+makemytrip
+oyo
+policybazaar
+pharmeasy
+practo
+byjus
+unacademy
+physicswallah
+upgrad
+razorpay
+juspay
+pine labs
+billdesk
+slice
+jupiter
+navi
+acko
+digit
+sharechat
+inmobi
+glance
+dailyhunt
+media.net
+directi
+nutanix
+vmware
+cisco
+juniper networks
+arista networks
+qualcomm
+intel
+samsung
+samsung r&d
+sap labs
+servicenow
+workday
+linkedin
+twilio
+gojek
+grab
+shopee
+booking.com
+expedia
+agoda
+airbnb
+amazon
+google
+thoughtworks
+publicis sapient
+epam
+globallogic
+persistent systems
+ltimindtree
+mphasis
+hexaware
+zs associates
+mu sigma
+fractal analytics
+tiger analytics
+latentview
+mckinsey
+bcg
+bain
+ey
+kpmg
+pwc
+american express
+jp morgan
+bank of america
+standard chartered
+fidelity
+blackrock
+arcesium
+de shaw
+optum
+unitedhealth group
+philips
+siemens
+bosch
+honeywell
+schneider electric
+ge healthcare
+texas instruments
+amd
+micron
+western digital
+synopsys
+cadence
+mathworks

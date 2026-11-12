@@ -132,3 +132,13 @@ A visitor looking for a company that isn't listed had no way forward. The site n
 - **Concurrency.** Different companies collect side by side, but publishing is one at a time. GitHub keeps only the newest waiting publish run, which still includes everything, because each export reads the whole database.
 - **KV write budget.** The free plan allows 1,000 writes a day. The upload sends only companies whose locked content changed, tracked by a hash manifest in KV.
 - **CI install size.** On Linux, PyTorch comes from its CPU-only index. The default build pulls several GB of CUDA libraries the embedding model never uses.
+
+## Answers in seconds: quick live pass + nightly pre-collection
+
+A full collection takes 3–10 minutes, and people searching a company won't wait that long.
+
+- **Quick live pass in the Worker.** It runs one Tavily search, limited to write-up sites (GeeksforGeeks, Medium, Reddit, LinkedIn posts, Glassdoor, AmbitionBox…). An open web search mostly returned "top 50 interview questions" articles.
+- **One streamed call per page, in parallel.** A single call over all pages took about 12s to its first question, because the model reads everything before writing. Per-page calls take about 1s after the search, so the first question appears in about 2–5s. Output is one JSON object per line, so each question can be forwarded the moment it's complete.
+- **Lower bar than the collector, and labelled as such.** There's no firsthand check per page, no tags and no deduplication beyond exact text. A regex drops lines that describe a round or only name a problem type ("solve a problem involving arrays"); the model kept writing those despite the rules. The full collection replaces the quick results about 10 minutes later.
+- **Cost guard.** Under ₹1 per quick pass. It needs sign-in and is capped: 5 per user per day (15 for subscribers), 100 for the site. Results are cached for 14 days, so a popular company costs once.
+- **Nightly pre-collection.** `companies.txt` lists about 150 companies people interview for in India. The nightly job takes the next N not yet tried, so most searches are instant within a few weeks.

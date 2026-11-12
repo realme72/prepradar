@@ -19,7 +19,7 @@ export class ApiError extends Error {
 // Routes the live site's Worker really serves; every other /api URL is answered in the
 // browser from static JSON.
 const WORKER_ROUTES = ["/api/config", "/api/me", "/api/content", "/api/session", "/api/subscribe", "/api/subscription",
-                       "/api/requests"];
+                       "/api/requests", "/api/quick"];
 
 // The signed-in user's token, on requests to the Worker.
 function authHeaders(): Record<string, string> {
@@ -115,6 +115,44 @@ export type CompanyRequest = {
   status: "none" | "queued" | "ready" | "empty" | "failed";
   at?: number; // when it was queued or finished, unix seconds
 };
+
+// The quick live pass (live site only): a first set of questions, streamed in seconds.
+export type QuickSource = { url: string; title: string; site: string };
+export type QuickQuestion = { text: string; category: string; source: number }; // source: index into sources
+export type QuickResult = { company: string; at: number; sources: QuickSource[]; questions: QuickQuestion[] };
+export type QuickEvent =
+  | { type: "sources"; sources: QuickSource[] }
+  | ({ type: "question" } & QuickQuestion)
+  // the full collection: started (or its status), or "unavailable" with the reason
+  | { type: "collect"; status: CompanyRequest["status"] | "unavailable"; at?: number; detail?: string }
+  | { type: "done"; count: number }
+  | { type: "error"; detail: string };
+
+// Starts a quick pass. The Worker answers with plain JSON when there's nothing to run
+// (already on the site, or a recent result), else with one JSON event per line.
+export async function streamQuick(company: string, onEvent: (e: QuickEvent) => void):
+    Promise<{ status: "ready" } | { status: "cached"; result: QuickResult } | { status: "streamed" }> {
+  const res = await fetch("/api/quick", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ company }),
+  });
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => null))?.detail ?? res.statusText);
+  if (!res.headers.get("Content-Type")?.includes("ndjson")) return res.json();
+
+  // Same buffering idea as streamRun below: a chunk can end mid-line.
+  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) if (line.trim()) onEvent(JSON.parse(line));
+  }
+  return { status: "streamed" };
+}
 
 export type ScopeCount = { function: string; position: string; questions: number };
 

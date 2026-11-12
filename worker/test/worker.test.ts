@@ -3,7 +3,8 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { beforeEach, test } from "node:test";
-import worker, { DAILY_LIMIT, companyName, hasAccess, type Env } from "../src/index.ts";
+import worker, { DAILY_LIMIT, QUICK_LIMIT, companyName, hasAccess, type Env } from "../src/index.ts";
+import { parseLine, usablePage } from "../src/quick.ts";
 
 const CLIENT_ID = "test-client.apps.googleusercontent.com";
 const KEY_SECRET = "rzp_secret";
@@ -35,6 +36,21 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   const url = new URL(String(input));
   const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
   if (url.hostname === "www.googleapis.com") return reply({ keys: [jwk] });
+  if (url.hostname === "api.tavily.com") {
+    const page = (u: string, text: string) => ({ url: u, title: "t", content: text, raw_content: text });
+    return reply({ results: [
+      page("https://www.geeksforgeeks.org/deloitte-interview-experience", "My deloitte interview: reverse a linked list, design a cache."),
+      page("https://rocketreach.co/deloitte-employees", "deloitte people emails"),   // people-data site: dropped
+      page("https://www.deloitte.com/careers", "deloitte careers"),                  // company's own site: dropped
+    ] });
+  }
+  if (url.hostname === "api.openai.com") {
+    // a streamed reply whose lines are split across events, as the real API does
+    const text = '{"q": "Reverse a singly linked list.", "category": "DSA"}\n{"q": "Design an LRU cache.", "categ' +
+                 'ory": "LLD"}\nHere is a line that isn\'t JSON\n{"q": "Reverse a singly-linked list!", "category": "DSA"}\n';
+    const events = text.match(/.{1,20}/gs)!.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
+    return new Response(events.join("") + "data: [DONE]\n\n", { status: 200 });
+  }
   if (url.hostname === "api.github.com") {
     dispatched.push({ url: url.pathname, body: JSON.parse(String(init?.body)) });
     return new Response(null, { status: 204 });
@@ -65,10 +81,12 @@ const USERS = kv();
 const CONTENT = kv();
 const REQUESTS = kv();
 CONTENT.map.set("company:amazon", JSON.stringify({ company: "amazon", questions: [{ id: 9, text: "locked" }] }));
+const pending: Promise<unknown>[] = [];
+const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} } as unknown as ExecutionContext;
 const env = {
   GOOGLE_CLIENT_ID: CLIENT_ID, RAZORPAY_KEY_ID: "rzp_test_key", RAZORPAY_KEY_SECRET: KEY_SECRET,
   RAZORPAY_PLAN_ID: "plan_1", RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET, SESSION_SECRET: "session_secret",
-  GITHUB_TOKEN: "gh_token", GITHUB_REPO: "me/prepradar",
+  GITHUB_TOKEN: "gh_token", GITHUB_REPO: "me/prepradar", OPENAI_API_KEY: "sk-test", TAVILY_API_KEY: "tvly-test",
   CONTENT, USERS, REQUESTS,
   ASSETS: { fetch: async (r: Request) => new Response(new URL(r.url).pathname === "/data/index.json"
     ? JSON.stringify({ companies: [{ company: "amazon", questions: 3 }] }) : "asset") },
@@ -80,7 +98,7 @@ const call = (method: string, path: string, body?: unknown, token?: string, raw?
     method,
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     body: raw ?? (body ? JSON.stringify(body) : undefined),
-  }), env);
+  }), env, ctx);
 
 async function signIn(sub = "1111") {
   return (await read(await call("POST", "/api/session", { credential: await googleToken({ sub }) }))).session as string;
@@ -165,7 +183,7 @@ test("access rules", () => {
 
 test("config is unavailable until Google and Razorpay are both configured", async () => {
   const half = { ...env, GOOGLE_CLIENT_ID: "" } as Env;
-  const res = await worker.fetch(new Request("https://prepradar.test/api/config"), half);
+  const res = await worker.fetch(new Request("https://prepradar.test/api/config"), half, ctx);
   assert.equal(res.status, 503);
 });
 
@@ -214,4 +232,52 @@ test("the site-wide cap holds across users", async () => {
   REQUESTS.map.set(`count:${new Date().toISOString().slice(0, 10)}:site`, String(DAILY_LIMIT.site));
   assert.equal((await call("POST", "/api/requests", { company: "newco" }, await signIn())).status, 429);
   assert.equal(dispatched.length, 0);
+});
+
+const lines = async (res: Response) => (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
+
+test("the quick pass streams questions from candidate pages, then caches them for everyone", async () => {
+  const token = await signIn();
+  const res = await call("POST", "/api/quick", { company: "Deloitte" }, token);
+  assert.equal(res.headers.get("Content-Type"), "application/x-ndjson");
+  const events = await lines(res);
+  await Promise.all(pending);
+
+  const sources = events.find((e) => e.type === "sources").sources;
+  assert.deepEqual(sources.map((s: any) => s.site), ["geeksforgeeks.org"]); // people-data and company site dropped
+  const questions = events.filter((e) => e.type === "question");
+  assert.deepEqual(questions.map((q) => [q.text, q.category, q.source]),
+                   [["Reverse a singly linked list.", "DSA", 0], ["Design an LRU cache.", "LLD", 0]]); // junk and near-duplicate dropped
+  assert.equal(events.find((e) => e.type === "collect").status, "queued"); // full collection started too
+  assert.deepEqual(events.at(-1), { type: "done", count: 2 });
+
+  // anyone (signed in or not) now gets the cached result at once
+  const cached = await read(await call("GET", "/api/quick?company=deloitte"));
+  assert.equal(cached.questions.length, 2);
+  const again = await read(await call("POST", "/api/quick", { company: "deloitte" }, token));
+  assert.equal(again.status, "cached");
+});
+
+test("the quick pass needs sign-in and stays under its caps", async () => {
+  assert.equal((await call("POST", "/api/quick", { company: "newco" })).status, 401);
+  const token = await signIn();
+  REQUESTS.map.set(`quick:${new Date().toISOString().slice(0, 10)}:1111`, String(QUICK_LIMIT.user));
+  assert.equal((await call("POST", "/api/quick", { company: "newco" }, token)).status, 429);
+});
+
+test("quick-pass helpers", () => {
+  assert.equal(parseLine('{"q": "What is a mutex?", "category": "Nope"}', 2)?.category, "Other");
+  assert.equal(parseLine('{"q": "What is a mutex?", "category": "Backend"}', 2)?.source, 2);
+  assert.equal(parseLine("Here are the questions:", 2), null);
+  for (const vague of ["The SQL questions tested query writing.", "Solve a problem involving arrays and combinatorics.",
+                       "Solve a problem based on Dynamic Programming and Binary Search.", "These rounds were hard."]) {
+    assert.equal(parseLine(JSON.stringify({ q: vague, category: "DSA" }), 0), null, vague);
+  }
+  for (const real of ["Solve the Stocks Buy and Sell problem.", "Given a sorted infinite stream, check if a number is present.",
+                      "Solve N-Queens."]) {
+    assert.ok(parseLine(JSON.stringify({ q: real, category: "DSA" }), 0), real);
+  }
+  assert.equal(usablePage("https://www.linkedin.com/in/someone", "deloitte", "deloitte"), false);
+  assert.equal(usablePage("https://www.linkedin.com/posts/x-deloitte-interview", "deloitte interview", "deloitte"), true);
+  assert.equal(usablePage("https://medium.com/@a/interview", "an interview at another firm", "deloitte"), false);
 });

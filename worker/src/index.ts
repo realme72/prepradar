@@ -11,6 +11,9 @@
 //   GET  /api/content?company=…      a company's locked content, for subscribers
 //   POST /api/requests {company}     collect a company that isn't on the site yet
 //   GET  /api/requests?company=…     how that request is going
+//   POST /api/quick {company}        quick live pass: streams a first set of questions in
+//                                    seconds (NDJSON), and starts the full collection
+//   GET  /api/quick?company=…        the last quick pass for a company, if any
 //
 // Storage is three KV namespaces: CONTENT (locked data, uploaded by `npm run data:upload`),
 // USERS (one record per Google user id: their subscription, nothing else) and REQUESTS
@@ -21,6 +24,7 @@
 // site. The workflow writes the outcome back to REQUESTS when nothing was found or it failed.
 import { signSession, validCheckoutSignature, validWebhookSignature, verifySession } from "./crypto.ts";
 import { verifyGoogleIdToken } from "./google.ts";
+import { extractQuestions, searchPages, type QuickResult } from "./quick.ts";
 import { HttpError, Razorpay, type Plan, type Subscription } from "./razorpay.ts";
 
 export type Env = {
@@ -32,6 +36,9 @@ export type Env = {
   SESSION_SECRET: string;
   GITHUB_TOKEN?: string; // fine-grained token: Actions read & write on GITHUB_REPO only
   GITHUB_REPO?: string;  // "owner/name"
+  OPENAI_API_KEY?: string; // quick live pass only
+  TAVILY_API_KEY?: string;
+  QUICK_MODEL?: string;
   CONTENT: KVNamespace;
   USERS: KVNamespace;
   REQUESTS: KVNamespace;
@@ -194,6 +201,9 @@ async function content(req: Request, env: Env) {
 // Each collection costs OpenAI and search credits, so requests need a signed-in user
 // and are capped per user and for the whole site, per UTC day.
 export const DAILY_LIMIT = { user: 2, subscriber: 5, site: 20 };
+// The quick pass is one search and one model call (under ₹1), so it allows more.
+export const QUICK_LIMIT = { user: 5, subscriber: 15, site: 100 };
+const QUICK_TTL = 14 * 86400; // until the full collection has long replaced it
 
 type RequestRecord = { status: "queued" | "empty" | "failed"; at: number };
 // How long an outcome stands before the company can be requested again.
@@ -230,23 +240,29 @@ async function requestStatus(req: Request, env: Env) {
   return json(await requestState(req, env, name));
 }
 
-async function requestCompany(req: Request, env: Env) {
-  const user = await signedInUser(req, env);
-  const name = companyName((await body<{ company?: unknown }>(req)).company);
-  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+const today = () => new Date().toISOString().slice(0, 10);
+
+// Within a cap, or a 429 naming it. Returns the commit that records one more use.
+async function underCap(env: Env, kind: string, user: string, limits: { user: number; subscriber: number; site: number },
+                        what: string) {
+  const userKey = `${kind}:${today()}:${user}`, siteKey = `${kind}:${today()}:site`;
+  const [mine, site] = [await count(env, userKey), await count(env, siteKey)];
+  const limit = hasAccess(await current(env, user), now()) ? limits.subscriber : limits.user;
+  if (mine >= limit) throw new HttpError(429, `You can ${what} ${limit} times a day. Try again tomorrow.`);
+  if (site >= limits.site) throw new HttpError(429, `Today's ${what === "request a new company" ? "new-company requests" : "quick searches"} are used up. Try again tomorrow.`);
+  const ttl = { expirationTtl: 2 * 86400 };
+  return () => Promise.all([env.REQUESTS.put(userKey, String(mine + 1), ttl), env.REQUESTS.put(siteKey, String(site + 1), ttl)]);
+}
+
+// Starts the collect workflow for a company that isn't on the site (or reports why not).
+async function startCollection(req: Request, env: Env, user: string, name: string) {
   const state = await requestState(req, env, name);
-  if (state.status !== "none") return json(state); // on the site, being collected, or recently tried
+  if (state.status !== "none") return state; // on the site, being collected, or recently tried
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) throw new HttpError(503, "Requesting new companies opens soon");
 
   // KV has no atomic increment, so two requests in the same instant can both pass; the
   // caps are a budget guard, not an exact count.
-  const day = new Date().toISOString().slice(0, 10);
-  const userKey = `count:${day}:${user}`, siteKey = `count:${day}:site`;
-  const [mine, site] = [await count(env, userKey), await count(env, siteKey)];
-  const limit = hasAccess(await current(env, user), now()) ? DAILY_LIMIT.subscriber : DAILY_LIMIT.user;
-  if (mine >= limit) throw new HttpError(429, `You can request ${limit} new companies a day. Try again tomorrow.`);
-  if (site >= DAILY_LIMIT.site) throw new HttpError(429, "Today's new-company requests are used up. Try again tomorrow.");
-
+  const used = await underCap(env, "count", user, DAILY_LIMIT, "request a new company");
   const res = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/collect.yml/dispatches`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json",
@@ -258,16 +274,87 @@ async function requestCompany(req: Request, env: Env) {
     throw new HttpError(502, "Couldn't start collecting. Try again later.");
   }
   const record: RequestRecord = { status: "queued", at: now() };
-  const ttl = { expirationTtl: 2 * 86400 };
   await Promise.all([
     env.REQUESTS.put(`company:${name}`, JSON.stringify(record), { expirationTtl: RETRY_AFTER.empty }),
-    env.REQUESTS.put(userKey, String(mine + 1), ttl),
-    env.REQUESTS.put(siteKey, String(site + 1), ttl),
+    used(),
   ]);
-  return json({ company: name, ...record });
+  return { company: name, ...record };
 }
 
-const ROUTES: Record<string, (req: Request, env: Env) => Promise<Response>> = {
+async function requestCompany(req: Request, env: Env) {
+  const user = await signedInUser(req, env);
+  const name = companyName((await body<{ company?: unknown }>(req)).company);
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  return json(await startCollection(req, env, user, name));
+}
+
+// ── quick live pass ──────────────────────────────────────────────────────────
+
+const quickKey = (name: string) => `quick:${name}`;
+
+async function quickCached(req: Request, env: Env) {
+  const name = companyName(new URL(req.url).searchParams.get("company"));
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const r = await env.REQUESTS.get(quickKey(name));
+  if (!r) throw new HttpError(404, "No quick results yet");
+  return new Response(r, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+}
+
+// Answers with a stream of JSON lines, sent as they happen:
+//   {"type":"sources","sources":[…]}  {"type":"question",…}  {"type":"collect",…}
+//   {"type":"done","count":n}  or  {"type":"error","detail":…}
+// A company already on the site, or with a recent quick result, gets plain JSON instead.
+async function quick(req: Request, env: Env, ctx: ExecutionContext) {
+  const user = await signedInUser(req, env);
+  const name = companyName((await body<{ company?: unknown }>(req)).company);
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  if (await onSite(req, env, name)) return json({ company: name, status: "ready" });
+  const cached = await env.REQUESTS.get<QuickResult>(quickKey(name), "json");
+  if (cached) return json({ company: name, status: "cached", result: cached });
+  if (!env.OPENAI_API_KEY || !env.TAVILY_API_KEY) throw new HttpError(503, "Quick search opens soon");
+  const used = await underCap(env, "quick", user, QUICK_LIMIT, "run a quick search");
+  const openai = env.OPENAI_API_KEY, tavily = env.TAVILY_API_KEY;
+
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+  const send = (o: unknown) => writer.write(encoder.encode(JSON.stringify(o) + "\n"));
+
+  // The response starts streaming now; waitUntil keeps the Worker alive until the
+  // work below finishes, even after the browser has its first bytes.
+  ctx.waitUntil((async () => {
+    const result: QuickResult = { company: name, at: now(), sources: [], questions: [] };
+    try {
+      await used();
+      // the full collection starts alongside; its answer is just reported to the page
+      const collect = startCollection(req, env, user, name)
+        .then((state) => send({ type: "collect", ...state }))
+        .catch((e) => send({ type: "collect", status: "unavailable", detail: e instanceof HttpError ? e.message : "Couldn't start" }));
+      const pages = await searchPages(name, tavily);
+      result.sources = pages.map(({ url, title, site }) => ({ url, title, site }));
+      await send({ type: "sources", sources: result.sources });
+      if (pages.length) {
+        await extractQuestions(name, pages, openai, env.QUICK_MODEL || "gpt-4o-mini", async (q) => {
+          result.questions.push(q);
+          await send({ type: "question", ...q });
+        });
+      }
+      await collect;
+      if (result.questions.length) {
+        await env.REQUESTS.put(quickKey(name), JSON.stringify(result), { expirationTtl: QUICK_TTL });
+      }
+      await send({ type: "done", count: result.questions.length });
+    } catch (e) {
+      console.error("quick pass failed", e);
+      await send({ type: "error", detail: "The quick search failed. Try again in a minute." });
+    } finally {
+      await writer.close();
+    }
+  })());
+  return new Response(readable, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" } });
+}
+
+const ROUTES: Record<string, (req: Request, env: Env, ctx: ExecutionContext) => Promise<Response>> = {
   "GET /api/config": config,
   "POST /api/session": session,
   "GET /api/me": me,
@@ -278,14 +365,16 @@ const ROUTES: Record<string, (req: Request, env: Env) => Promise<Response>> = {
   "GET /api/content": content,
   "POST /api/requests": requestCompany,
   "GET /api/requests": requestStatus,
+  "POST /api/quick": quick,
+  "GET /api/quick": quickCached,
 };
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const route = ROUTES[`${req.method} ${new URL(req.url).pathname}`];
     if (!route) return env.ASSETS.fetch(req);
     try {
-      return await route(req, env);
+      return await route(req, env, ctx);
     } catch (e) {
       if (e instanceof HttpError) return json({ detail: e.message }, e.status);
       console.error(e);

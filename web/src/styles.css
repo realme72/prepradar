@@ -279,3 +279,7 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 }
 @keyframes pulse { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+.quick-list { margin-top: 12px; }
+.quick-list .card { animation: arrive 0.25s ease-out; }
+@keyframes arrive { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .quick-list .card { animation: none; } }
