@@ -1,0 +1,13 @@
+{
+  "name": "PrepRadar",
+  "short_name": "PrepRadar",
+  "description": "Interview questions candidates were really asked, by company.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07060d",
+  "theme_color": "#07060d",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

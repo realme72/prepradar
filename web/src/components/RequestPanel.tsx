@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ApiError, apiUrl, getJson, postJson, streamQuick, type CompanyRequest, type QuickEvent, type QuickResult } from "../api";
 import { GoogleButton, useAccount } from "../account";
 import { monthLabel } from "../dates";
+import { canNotify, notifyWhenReady } from "../notify";
 
 type Props = {
   name: string;
@@ -12,6 +13,19 @@ type Quick = Pick<QuickResult, "sources" | "questions">;
 type Phase = "idle" | "searching" | "streaming" | "done";
 
 const POLL_MS = 30_000;
+// How long a full collection takes on GitHub Actions (Swiggy: 21 minutes).
+const TYPICAL_MIN = 20;
+const SLOW_MIN = 30;
+
+// "Ready around 3:45 PM (about 18 minutes)", from when the collection was queued.
+function eta(queuedAt: number, nowMs: number) {
+  const ready = (queuedAt + TYPICAL_MIN * 60) * 1000;
+  const elapsed = (nowMs - queuedAt * 1000) / 60_000;
+  if (elapsed > SLOW_MIN) return "It's taking longer than usual; it should finish soon.";
+  const time = new Date(ready).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const left = Math.ceil((ready - Math.max(nowMs, queuedAt * 1000)) / 60_000);
+  return left > 1 ? `Should be ready around ${time} (about ${left} minutes).` : "Should be ready any minute now.";
+}
 
 function hostOf(url: string) {
   return new URL(url).hostname.replace(/^www\./, "");
@@ -22,6 +36,7 @@ function hostOf(url: string) {
 //    appearing within seconds (and are cached for the next visitor);
 //  - the full collection on GitHub Actions (15–25 minutes), which checks every source,
 //    merges duplicates, adds candidate stories and a guide, then republishes the site.
+//    The panel shows when to come back, and can send a browser notification when it's done.
 //
 // App renders this with key={name}, so a different name starts over with fresh state.
 export function RequestPanel({ name, onReady }: Props) {
@@ -31,6 +46,9 @@ export function RequestPanel({ name, onReady }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [collectNote, setCollectNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clock, setClock] = useState(() => Date.now()); // for the ETA; ticks with each status check
+  const [notify, setNotify] = useState<"idle" | "asking" | "on">("idle");
+  const [notifyError, setNotifyError] = useState<string | null>(null);
   const status = request?.status;
 
   // On mount: has anyone already run a quick pass for this company? A 404 just means no.
@@ -55,7 +73,11 @@ export function RequestPanel({ name, onReady }: Props) {
     let cancelled = false;
     const check = () =>
       getJson<CompanyRequest>(apiUrl("/requests", { company: name }))
-        .then((r) => !cancelled && setRequest(r))
+        .then((r) => {
+          if (cancelled) return;
+          setRequest(r);
+          setClock(Date.now());
+        })
         .catch((e: Error) => !cancelled && setError(e.message));
     if (!status) check();
     const timer = status === "queued" ? setInterval(check, POLL_MS) : undefined;
@@ -104,6 +126,19 @@ export function RequestPanel({ name, onReady }: Props) {
     } catch (e) {
       setError(e instanceof ApiError && e.status === 401 ? "Please sign in again." : (e as Error).message);
       setPhase((p) => (p === "searching" ? "idle" : "done"));
+    }
+  }
+
+  async function turnOnNotify(pushKey: string) {
+    setNotify("asking");
+    setNotifyError(null);
+    try {
+      const r = await notifyWhenReady(name, pushKey);
+      if (r.status === "ready") onReady(name);
+      setNotify("on");
+    } catch (e) {
+      setNotifyError((e as Error).message);
+      setNotify("idle");
     }
   }
 
@@ -164,8 +199,24 @@ export function RequestPanel({ name, onReady }: Props) {
       )}
 
       {status === "queued" && (
-        <p className="muted small"><span className="pulse" aria-hidden /> Full analysis running: every source checked,
-           duplicates merged, candidate stories and a prep guide. Usually 15–25 minutes; this page updates by itself, or come back later.</p>
+        <div className="request-wait">
+          <p className="muted small"><span className="pulse" aria-hidden /> Full analysis running: every source checked,
+             duplicates merged, candidate stories and a prep guide. {request?.at && eta(request.at, clock)} This page
+             updates by itself, or come back then.</p>
+          {session && config?.push_key && (
+            !canNotify() ? (
+              <p className="muted small">This browser can't show notifications. (On an iPhone, add PrepRadar to the Home
+                 Screen first.)</p>
+            ) : notify === "on" ? (
+              <p className="small">🔔 We'll notify you on this device when {name} is ready.</p>
+            ) : (
+              <button className="chip bell" disabled={notify === "asking"} onClick={() => turnOnNotify(config.push_key!)}>
+                🔔 Notify me when it's ready
+              </button>
+            )
+          )}
+          {notifyError && <p className="error small">{notifyError}</p>}
+        </div>
       )}
       {status === "empty" && (
         <p className="muted small">The full collection found no interview write-ups for {name}. Check the spelling, or

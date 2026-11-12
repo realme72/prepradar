@@ -14,6 +14,10 @@
 //   POST /api/quick {company}        quick live pass: streams a first set of questions in
 //                                    seconds (NDJSON), and starts the full collection
 //   GET  /api/quick?company=…        the last quick pass for a company, if any
+//   POST /api/notify {company, endpoint}  notify this browser when a collection finishes
+//   POST /api/notify/pending {endpoint}   the service worker collects its messages
+//
+// A cron trigger (every 5 minutes, `scheduled` below) sends those notifications.
 //
 // Storage is three KV namespaces: CONTENT ("company:<company>": what only subscribers
 // see, uploaded by `npm run data:upload`),
@@ -25,6 +29,7 @@
 // site. The workflow writes the outcome back to REQUESTS when nothing was found or it failed.
 import { signSession, validCheckoutSignature, validWebhookSignature, verifySession } from "./crypto.ts";
 import { verifyGoogleIdToken } from "./google.ts";
+import { endpointId, sendPush, validEndpoint, type PushKeys } from "./push.ts";
 import { extractQuestions, searchPages, type QuickResult } from "./quick.ts";
 import { HttpError, Razorpay, type Plan, type Subscription } from "./razorpay.ts";
 
@@ -40,6 +45,8 @@ export type Env = {
   OPENAI_API_KEY?: string; // quick live pass only
   TAVILY_API_KEY?: string;
   QUICK_MODEL?: string;
+  VAPID_PUBLIC_KEY?: string;  // browser notifications (see push.ts)
+  VAPID_PRIVATE_KEY?: string;
   CONTENT: KVNamespace;
   USERS: KVNamespace;
   REQUESTS: KVNamespace;
@@ -125,6 +132,7 @@ async function config(_req: Request, env: Env) {
   }
   plan ??= await rzp(env).plan(env.RAZORPAY_PLAN_ID);
   return json({ google_client_id: env.GOOGLE_CLIENT_ID, razorpay_key_id: env.RAZORPAY_KEY_ID,
+                push_key: pushKeys(env)?.publicKey ?? null,
                 plan: { amount: plan.item.amount, currency: plan.item.currency, period: plan.period } });
 }
 
@@ -219,15 +227,17 @@ export function companyName(raw: unknown): string | null {
   return /^[a-z0-9][a-z0-9 &.'-]{0,38}[a-z0-9.]$/.test(name) ? name : null;
 }
 
-async function onSite(req: Request, env: Env, name: string): Promise<boolean> {
-  const res = await env.ASSETS.fetch(new Request(new URL("/data/index.json", req.url)));
+// The published index lists every company on the site. (The assets binding ignores the
+// host, so a cron run, which has no request, can ask too.)
+async function onSite(env: Env, name: string): Promise<boolean> {
+  const res = await env.ASSETS.fetch(new Request("https://assets.local/data/index.json"));
   if (!res.ok) return false;
   const index = (await res.json()) as { companies: { company: string }[] };
   return index.companies.some((c) => c.company === name);
 }
 
-async function requestState(req: Request, env: Env, name: string) {
-  if (await onSite(req, env, name)) return { company: name, status: "ready" };
+async function requestState(env: Env, name: string) {
+  if (await onSite(env, name)) return { company: name, status: "ready" };
   const r = await env.REQUESTS.get<RequestRecord>(`company:${name}`, "json");
   return r && now() - r.at < RETRY_AFTER[r.status] ? { company: name, ...r } : { company: name, status: "none" };
 }
@@ -239,7 +249,7 @@ async function count(env: Env, key: string): Promise<number> {
 async function requestStatus(req: Request, env: Env) {
   const name = companyName(new URL(req.url).searchParams.get("company"));
   if (!name) throw new HttpError(400, "That doesn't look like a company name");
-  return json(await requestState(req, env, name));
+  return json(await requestState(env, name));
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -258,7 +268,7 @@ async function underCap(env: Env, kind: string, user: string, limits: { user: nu
 
 // Starts the collect workflow for a company that isn't on the site (or reports why not).
 async function startCollection(req: Request, env: Env, user: string, name: string) {
-  const state = await requestState(req, env, name);
+  const state = await requestState(env, name);
   if (state.status !== "none") return state; // on the site, being collected, or recently tried
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) throw new HttpError(503, "Requesting new companies opens soon");
 
@@ -310,7 +320,7 @@ async function quick(req: Request, env: Env, ctx: ExecutionContext) {
   const user = await signedInUser(req, env);
   const name = companyName((await body<{ company?: unknown }>(req)).company);
   if (!name) throw new HttpError(400, "That doesn't look like a company name");
-  if (await onSite(req, env, name)) return json({ company: name, status: "ready" });
+  if (await onSite(env, name)) return json({ company: name, status: "ready" });
   const cached = await env.REQUESTS.get<QuickResult>(quickKey(name), "json");
   if (cached) return json({ company: name, status: "cached", result: cached });
   if (!env.OPENAI_API_KEY || !env.TAVILY_API_KEY) throw new HttpError(503, "Quick search opens soon");
@@ -356,6 +366,81 @@ async function quick(req: Request, env: Env, ctx: ExecutionContext) {
   return new Response(readable, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-store" } });
 }
 
+// ── notifications ────────────────────────────────────────────────────────────
+// KV REQUESTS: "watch:<company>" lists the browsers waiting for it; "pending:<id>" holds
+// a browser's messages until its service worker fetches them.
+
+type Notice = { title: string; body: string; url: string };
+const MAX_WATCHERS = 500;
+
+function pushKeys(env: Env): PushKeys | null {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return null;
+  return { publicKey: env.VAPID_PUBLIC_KEY, privateJwk: env.VAPID_PRIVATE_KEY,
+           subject: "https://prepradar.prepradar-worker.workers.dev" };
+}
+
+async function watch(req: Request, env: Env) {
+  await signedInUser(req, env);
+  const b = await body<{ company?: unknown; endpoint?: unknown }>(req);
+  const name = companyName(b.company), endpoint = validEndpoint(b.endpoint);
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  if (!endpoint) throw new HttpError(400, "This browser's notifications aren't supported");
+  if (!pushKeys(env)) throw new HttpError(503, "Notifications open soon");
+  const state = await requestState(env, name);
+  if (state.status === "ready") return json(state);
+  if (state.status !== "queued") throw new HttpError(409, `${name} isn't being collected right now`);
+  const key = `watch:${name}`;
+  const endpoints = (await env.REQUESTS.get<string[]>(key, "json")) ?? [];
+  if (!endpoints.includes(endpoint)) {
+    if (endpoints.length >= MAX_WATCHERS) throw new HttpError(429, "Too many people are waiting for this one already");
+    await env.REQUESTS.put(key, JSON.stringify([...endpoints, endpoint]), { expirationTtl: 2 * 86400 });
+  }
+  return json({ ...state, watching: true });
+}
+
+async function pending(req: Request, env: Env) {
+  const endpoint = validEndpoint((await body<{ endpoint?: unknown }>(req)).endpoint);
+  if (!endpoint) throw new HttpError(400, "Unknown subscription");
+  const key = `pending:${await endpointId(endpoint)}`;
+  const notices = (await env.REQUESTS.get<Notice[]>(key, "json")) ?? [];
+  if (notices.length) await env.REQUESTS.delete(key);
+  return json(notices);
+}
+
+export function notice(company: string, status: string): Notice {
+  const url = `/?company=${encodeURIComponent(company)}`;
+  if (status === "ready") {
+    return { title: `${company} is ready`, body: "Interview questions, candidate stories and a prep guide are on PrepRadar now.", url };
+  }
+  if (status === "empty") {
+    return { title: `Nothing found for ${company}`, body: "No interview write-ups turned up. Try the company's full name.", url };
+  }
+  return { title: `${company} didn't finish`, body: "Collecting it failed. You can try again from PrepRadar.", url };
+}
+
+// Run by the cron trigger: every company someone is waiting for that has finished
+// (ready, nothing found, or failed) gets its notifications sent, then its list cleared.
+export async function deliverNotifications(env: Env, at = now()): Promise<number> {
+  const keys = pushKeys(env);
+  if (!keys) return 0;
+  let sent = 0;
+  const { keys: watches } = await env.REQUESTS.list({ prefix: "watch:" });
+  for (const { name: key } of watches) {
+    const company = key.slice("watch:".length);
+    const state = await requestState(env, company);
+    if (state.status === "queued") continue;
+    const message = notice(company, state.status);
+    for (const endpoint of (await env.REQUESTS.get<string[]>(key, "json")) ?? []) {
+      const box = `pending:${await endpointId(endpoint)}`;
+      const waiting = (await env.REQUESTS.get<Notice[]>(box, "json")) ?? [];
+      await env.REQUESTS.put(box, JSON.stringify([...waiting, message].slice(-5)), { expirationTtl: 7 * 86400 });
+      if ((await sendPush(endpoint, keys, at)) === "sent") sent += 1;
+    }
+    await env.REQUESTS.delete(key);
+  }
+  return sent;
+}
+
 const ROUTES: Record<string, (req: Request, env: Env, ctx: ExecutionContext) => Promise<Response>> = {
   "GET /api/config": config,
   "POST /api/session": session,
@@ -369,6 +454,8 @@ const ROUTES: Record<string, (req: Request, env: Env, ctx: ExecutionContext) => 
   "GET /api/requests": requestStatus,
   "POST /api/quick": quick,
   "GET /api/quick": quickCached,
+  "POST /api/notify": watch,
+  "POST /api/notify/pending": pending,
 };
 
 export default {
@@ -382,5 +469,8 @@ export default {
       console.error(e);
       return json({ detail: "Something went wrong" }, 500);
     }
+  },
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(deliverNotifications(env));
   },
 } satisfies ExportedHandler<Env>;

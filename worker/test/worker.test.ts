@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { beforeEach, test } from "node:test";
-import worker, { DAILY_LIMIT, QUICK_LIMIT, companyName, hasAccess, type Env } from "../src/index.ts";
+import worker, { DAILY_LIMIT, QUICK_LIMIT, companyName, deliverNotifications, hasAccess, type Env } from "../src/index.ts";
 import { parseLine, parsePosted, usablePage } from "../src/quick.ts";
 
 const CLIENT_ID = "test-client.apps.googleusercontent.com";
@@ -29,13 +29,23 @@ async function googleToken(claims: Record<string, unknown>, key = pair.privateKe
   return `${head}.${body}.${b64url(sig)}`;
 }
 
-// ── fake Razorpay and GitHub ──
+// ── VAPID keys, as `npm run vapid` makes them ──
+const vapid = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+const VAPID_PUBLIC_KEY = b64url(new Uint8Array(await crypto.subtle.exportKey("raw", vapid.publicKey) as ArrayBuffer));
+const VAPID_PRIVATE_KEY = JSON.stringify(await crypto.subtle.exportKey("jwk", vapid.privateKey));
+
+// ── fake Razorpay, GitHub and a browser push service ──
+const pushes: { endpoint: string; auth: string }[] = [];
 const subs: Record<string, Record<string, unknown>> = {};
 const dispatched: { url: string; body: any }[] = [];
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(String(input));
   const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
   if (url.hostname === "www.googleapis.com") return reply({ keys: [jwk] });
+  if (url.hostname === "fcm.googleapis.com") {
+    pushes.push({ endpoint: String(input), auth: new Headers(init?.headers).get("Authorization") ?? "" });
+    return new Response(null, { status: url.pathname.endsWith("/gone") ? 410 : 201 });
+  }
   if (url.hostname === "api.tavily.com") {
     const page = (u: string, text: string) => ({ url: u, title: "t", content: text, raw_content: text });
     return reply({ results: [
@@ -75,11 +85,14 @@ function kv() {
     map: m,
     get: async (k: string, type?: string) => (m.has(k) ? (type === "json" ? JSON.parse(m.get(k)!) : m.get(k)!) : null),
     put: async (k: string, v: string) => void m.set(k, v),
+    delete: async (k: string) => void m.delete(k),
+    list: async ({ prefix = "" } = {}) => ({ keys: [...m.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })) }),
   };
 }
 const USERS = kv();
 const CONTENT = kv();
 const REQUESTS = kv();
+const onSite = ["amazon"]; // the published index
 CONTENT.map.set("company:amazon", JSON.stringify({ questions: [{ id: 9, text: "locked" }], experiences: [], guides: [{ markdown: "full" }] }));
 const pending: Promise<unknown>[] = [];
 const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p), passThroughOnException() {} } as unknown as ExecutionContext;
@@ -87,9 +100,10 @@ const env = {
   GOOGLE_CLIENT_ID: CLIENT_ID, RAZORPAY_KEY_ID: "rzp_test_key", RAZORPAY_KEY_SECRET: KEY_SECRET,
   RAZORPAY_PLAN_ID: "plan_1", RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET, SESSION_SECRET: "session_secret",
   GITHUB_TOKEN: "gh_token", GITHUB_REPO: "me/prepradar", OPENAI_API_KEY: "sk-test", TAVILY_API_KEY: "tvly-test",
+  VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY,
   CONTENT, USERS, REQUESTS,
   ASSETS: { fetch: async (r: Request) => new Response(new URL(r.url).pathname === "/data/index.json"
-    ? JSON.stringify({ companies: [{ company: "amazon", questions: 3 }] }) : "asset") },
+    ? JSON.stringify({ companies: onSite.map((company) => ({ company, questions: 3 })) }) : "asset") },
 } as unknown as Env;
 
 const read = async (res: Response): Promise<any> => res.json();
@@ -116,6 +130,8 @@ beforeEach(() => {
   USERS.map.clear();
   REQUESTS.map.clear();
   dispatched.length = 0;
+  pushes.length = 0;
+  onSite.splice(1);
 });
 
 test("Google sign-in gives a session; forged or foreign tokens don't", async () => {
@@ -190,7 +206,7 @@ test("config is unavailable until Google and Razorpay are both configured", asyn
 
 test("config exposes only public values; other paths are static files", async () => {
   const c = await read(await call("GET", "/api/config"));
-  assert.deepEqual(c, { google_client_id: CLIENT_ID, razorpay_key_id: "rzp_test_key",
+  assert.deepEqual(c, { google_client_id: CLIENT_ID, razorpay_key_id: "rzp_test_key", push_key: VAPID_PUBLIC_KEY,
                         plan: { amount: 4900, currency: "INR", period: "monthly" } });
   assert.equal(await (await call("GET", "/data/amazon.json")).text(), "asset");
 });
@@ -287,4 +303,36 @@ test("quick-pass helpers", () => {
   assert.equal(usablePage("https://www.linkedin.com/in/someone", "deloitte", "deloitte"), false);
   assert.equal(usablePage("https://www.linkedin.com/posts/x-deloitte-interview", "deloitte interview", "deloitte"), true);
   assert.equal(usablePage("https://medium.com/@a/interview", "an interview at another firm", "deloitte"), false);
+});
+
+test("a browser waiting for a company is notified once it's collected", async () => {
+  const endpoint = "https://fcm.googleapis.com/fcm/send/abc", gone = "https://fcm.googleapis.com/fcm/send/gone";
+  assert.equal((await call("POST", "/api/notify", { company: "newco", endpoint })).status, 401);
+  const token = await signIn();
+  assert.equal((await call("POST", "/api/notify", { company: "newco", endpoint }, token)).status, 409); // not requested yet
+  await call("POST", "/api/requests", { company: "newco" }, token);
+  assert.equal((await call("POST", "/api/notify", { company: "newco", endpoint: "https://evil.example/x" }, token)).status, 400);
+  assert.equal((await read(await call("POST", "/api/notify", { company: "newco", endpoint }, token))).watching, true);
+  await call("POST", "/api/notify", { company: "newco", endpoint: gone }, token);
+  await call("POST", "/api/notify", { company: "newco", endpoint }, token); // twice: still one entry
+  assert.equal(JSON.parse(REQUESTS.map.get("watch:newco")!).length, 2);
+
+  assert.equal(await deliverNotifications(env), 0); // still collecting
+  assert.equal(pushes.length, 0);
+
+  onSite.push("newco"); // the workflow published it
+  assert.equal(await deliverNotifications(env), 1); // the unsubscribed browser doesn't count
+  assert.equal(REQUESTS.map.has("watch:newco"), false);
+  // the push is signed for that push service with our key
+  const [, jwt, key] = pushes[0].auth.match(/^vapid t=([^,]+), k=(.+)$/)!;
+  assert.equal(key, VAPID_PUBLIC_KEY);
+  const [h, b, sig] = jwt.split(".");
+  assert.equal(JSON.parse(Buffer.from(b, "base64url").toString()).aud, "https://fcm.googleapis.com");
+  assert.ok(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, vapid.publicKey, Buffer.from(sig, "base64url"),
+                                       new TextEncoder().encode(`${h}.${b}`)));
+
+  // the service worker picks up the message once
+  const notices = await read(await call("POST", "/api/notify/pending", { endpoint }));
+  assert.deepEqual(notices.map((n: any) => [n.title, n.url]), [["newco is ready", "/?company=newco"]]);
+  assert.deepEqual(await read(await call("POST", "/api/notify/pending", { endpoint })), []);
 });

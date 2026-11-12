@@ -256,6 +256,8 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 .chip:hover { filter: brightness(1.12); }
 .chip.logout { background: var(--magenta); box-shadow: var(--glow-magenta); }
 .chip.cancel { background: #ff8fa3; box-shadow: 0 0 6px rgba(255, 143, 163, 0.35); }
+.chip.bell { background: var(--cyan); box-shadow: var(--glow-cyan); padding: 4px 10px; }
+.chip:disabled { opacity: 0.6; cursor: wait; }
 .small { font-size: 0.75rem; }
 /* Google draws its button in its own frame (its branding rules don't allow restyling
    it). With the page in dark mode the browser paints that frame an opaque white box;

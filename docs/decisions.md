@@ -152,3 +152,12 @@ Half of each category was free, which gave away most of the value. Now anyone no
 - **Sources keep the full publish date** (`posted_on`), not just the year, so cards say "posted Mar 2025". A question shows its newest write-up's month; one with a stated interview year shows both ("interviewed 2024 · posted Mar 2025").
 - **The date comes from the page's metadata** (trafilatura), never from the model. Pages read from the search provider's text have none and keep showing a year or nothing. `prepradar dates` re-fetched older sources to fill it in.
 - **The quick pass asks the model for the month** only when the page shows it (`{"posted": "YYYY-MM"}` as its first line). Months in the future or before 2005 are dropped.
+
+## "Notify me when it's ready"
+
+- **No Celery or job server.** The queue already exists: the Worker records the request in KV and GitHub Actions does the work. A Celery worker would need a server and Redis running all the time; this setup has neither and costs nothing.
+- **Browser notifications, not email.** Sending email to anyone needs a verified domain, and the site is still on workers.dev. Web Push needs only a key pair. iPhones show it only for a site added to the Home Screen (hence the web manifest).
+- **The push is empty.** Encrypting a payload per browser (RFC 8291) is a lot of crypto for one line of text. The message waits in KV under the subscription, and the service worker fetches it when the push wakes it. Only the VAPID signature is needed.
+- **A cron trigger, not a call from the workflow.** Every 5 minutes the Worker checks the companies someone is waiting for (on the site, nothing found, or failed) and notifies them. The workflow needs no new secret, and a run that dies without reporting still ends in a notice once the request expires.
+- **Push endpoints are checked against the known push services** (Google, Mozilla, Microsoft, Apple), so the Worker can't be made to post to an arbitrary URL.
+- **The ETA** is the queued time plus 20 minutes (Swiggy's first run took 21). After 30 minutes the panel just says it's taking longer than usual.

@@ -114,6 +114,21 @@ Open the local site at **http://localhost:8787**, not 127.0.0.1. Google only acc
 
 Until `GITHUB_TOKEN` is set, the site says "Requesting new companies opens soon." Without it, the companies you add from your laptop still go live with the usual export, build, upload and deploy.
 
+## 3c. "Notify me when it's ready" (browser notifications)
+
+While a requested company is being collected, signed-in visitors can ask for a browser
+notification when it's done. It needs one key pair, made once:
+
+    npm --prefix worker run vapid      # prints the public key, writes private/vapid-private.json
+
+Put the public key in `wrangler.jsonc` (`VAPID_PUBLIC_KEY`), then:
+
+    cd worker && npx wrangler secret put VAPID_PRIVATE_KEY < ../private/vapid-private.json
+    npx wrangler deploy
+
+A cron trigger (every 5 minutes) checks the companies people are waiting for and sends
+the notifications. Making a new pair later cuts off every existing subscription.
+
 ## 4. Take real money
 
 1. Complete Razorpay KYC and activate live mode.

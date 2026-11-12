@@ -22,7 +22,9 @@ export default function App() {
   // App owns them because several children need them ("lifting state up").
   // A first visit opens Amazon (the company with the most questions) rather than an
   // empty page; the picker changes it.
-  const [company, setCompany] = useState<string | null>(DEFAULT_COMPANY);
+  // A notification's link opens its company (?company=…).
+  const [company, setCompany] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get("company") ?? DEFAULT_COMPANY);
   // A company typed in the picker that isn't on the site yet.
   const [requested, setRequested] = useState<string | null>(null);
   // Local dev: the run box, opened by such a request with the name filled in.

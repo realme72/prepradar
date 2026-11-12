@@ -8,7 +8,7 @@ import { useApi } from "./hooks/useApi";
 import { Cancelled, cancelSubscription, subscribe, type Me } from "./payments";
 import { resetLockedContent } from "./static";
 
-type Config = { google_client_id: string; razorpay_key_id: string; plan: { amount: number; currency: string; period: string } };
+type Config = { google_client_id: string; razorpay_key_id: string; push_key?: string | null; plan: { amount: number; currency: string; period: string } };
 
 type Account = {
   enabled: boolean;               // false in local dev (FastAPI): nothing is locked there

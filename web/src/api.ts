@@ -19,7 +19,7 @@ export class ApiError extends Error {
 // Routes the live site's Worker really serves; every other /api URL is answered in the
 // browser from static JSON.
 const WORKER_ROUTES = ["/api/config", "/api/me", "/api/content", "/api/session", "/api/subscribe", "/api/subscription",
-                       "/api/requests", "/api/quick"];
+                       "/api/requests", "/api/quick", "/api/notify"];
 
 // The signed-in user's token, on requests to the Worker.
 function authHeaders(): Record<string, string> {

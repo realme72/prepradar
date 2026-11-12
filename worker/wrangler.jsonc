@@ -19,6 +19,10 @@
     { "binding": "USERS", "id": "646ba601d4b64ef7a9f520ecb4aa94dc" },
     { "binding": "REQUESTS", "id": "f3e6ebdbce2248cbaac047227a4dc1c0" }
   ],
-  // The repo whose collect workflow a company request starts (see GITHUB_TOKEN).
-  "vars": { "GITHUB_REPO": "realme72/prepradar" }
+  // GITHUB_REPO: the repo whose collect workflow a company request starts (see
+  // GITHUB_TOKEN). VAPID_PUBLIC_KEY: browsers subscribe to notifications with it; its
+  // private half is the VAPID_PRIVATE_KEY secret (`npm run vapid` makes both).
+  "vars": { "GITHUB_REPO": "realme72/prepradar", "VAPID_PUBLIC_KEY": "BB_MNYsQF4bZi7a5EgxZA32wBvxxL_d0pFvmQn27ONRFkkFdAoKHlJEwGdhdhslg8vyGviXiifsqRFdQGftV0sk" },
+  // Sends "your company is ready" notifications (deliverNotifications)
+  "triggers": { "crons": ["*/5 * * * *"] }
 }
