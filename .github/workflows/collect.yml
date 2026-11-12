@@ -65,6 +65,8 @@ jobs:
           PYTHONUNBUFFERED: "1"  # each line when it happens, so the log's timestamps show where time goes
           REFRESH: ${{ inputs.refresh && '1' || '' }}
         run: uv run prepradar run "$COMPANY" --function Engineering ${REFRESH:+--refresh}
+      # month each write-up was posted, for sources stored before dates were kept (no AI cost)
+      - run: uv run prepradar dates --company "$COMPANY"
       - id: count
         run: echo "questions=$(uv run prepradar count "$COMPANY" 2>/dev/null | tail -1)" >> "$GITHUB_OUTPUT"
       # Tell the site how it went when there's nothing to publish (it shows "ready"
