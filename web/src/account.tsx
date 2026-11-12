@@ -87,7 +87,7 @@ const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN")}`;
 export const priceLabel = (c: Config | null) => (c ? `${rupees(c.plan.amount)}/${c.plan.period === "monthly" ? "month" : c.plan.period}` : "");
 
 // Google draws its own button into a div; a ref gives us that DOM node.
-function GoogleButton() {
+export function GoogleButton() {
   const { config, signIn } = useAccount();
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);

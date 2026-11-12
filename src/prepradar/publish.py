@@ -19,18 +19,16 @@ from pathlib import Path
 
 import numpy as np
 
-from prepradar.roles import CATEGORIES, FUNCTIONS, RELATED_TRACKS, TRACKS, UNKNOWN, Scope
+from prepradar.roles import CATEGORIES, FUNCTIONS, RELATED_TRACKS, TRACKS, UNKNOWN
 from prepradar.store import db
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "web" / "public" / "data"
 PRIVATE_DIR = ROOT / "private"
-REPORTS = ROOT / "reports"
 
 FREE_SHARE = 0.5          # of each category's specific questions, most reported first
 FREE_STORIES = 3          # newest candidate stories per function, shown in full for free
 FREE_GUIDE_SECTIONS = 3   # "At a glance", "Process" and the first category section
-SINCE_YEARS_BACK = [1, 2, 3, 5]  # the UI's Year options; guides saved for these are exported
 
 
 def _quantise(vec) -> str:
@@ -52,22 +50,6 @@ def guide_preview(md: str) -> str:
     note = (f"## 🔒 {len(locked)} more sections for subscribers\n\n"
             + ", ".join(heading(s) for s in locked) + "\n\n") if locked else ""
     return head + "".join(sections[:FREE_GUIDE_SECTIONS]) + note + "".join(s for s in rest if heading(s) in keep)
-
-
-def _saved_guides(company: str) -> list[dict]:
-    """Full guides already written for this company, under every scope the UI can ask for."""
-    this_year = date.today().year
-    out = []
-    for fn, f in FUNCTIONS.items():
-        for pos in [None] + f.positions + [UNKNOWN]:
-            for track in [None] + (TRACKS if fn == "Engineering" else []):
-                for since in [None] + [this_year - n for n in SINCE_YEARS_BACK]:
-                    scope = Scope(company, fn, pos, track, since)
-                    path = REPORTS / f"{scope.slug()}.md"
-                    if path.exists():
-                        out.append({"function": fn, "position": pos or "", "track": track or "",
-                                    "since": since, "markdown": path.read_text()})
-    return out
 
 
 def _company_questions(conn, company: str) -> list[dict]:
@@ -136,7 +118,7 @@ def export(out_dir: Path = DATA_DIR, private_dir: Path = PRIVATE_DIR) -> dict:
                 seen[s["function"]] = seen.get(s["function"], 0) + 1
                 if seen[s["function"]] <= FREE_STORIES:
                     free_s.add(s["id"])
-            guides = _saved_guides(name)
+            guides = db.company_guides(conn, name)
 
             public = {
                 "company": name,

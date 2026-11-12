@@ -11,10 +11,14 @@
     "run_worker_first": ["/api/*"]
   },
   // CONTENT: each company's locked data (`npm run data:upload`). USERS: one record per
-  // signed-in user (their subscription). Create each once with
-  // `npx wrangler kv namespace create CONTENT` (and USERS), and paste the ids here.
+  // signed-in user (their subscription). REQUESTS: companies visitors asked for, and
+  // per-day request counts. Create each once with `npx wrangler kv namespace create
+  // CONTENT` (and USERS, REQUESTS), and paste the ids here. The ids aren't secret.
   "kv_namespaces": [
     { "binding": "CONTENT", "id": "REPLACE_WITH_CONTENT_NAMESPACE_ID" },
-    { "binding": "USERS", "id": "REPLACE_WITH_USERS_NAMESPACE_ID" }
-  ]
+    { "binding": "USERS", "id": "REPLACE_WITH_USERS_NAMESPACE_ID" },
+    { "binding": "REQUESTS", "id": "REPLACE_WITH_REQUESTS_NAMESPACE_ID" }
+  ],
+  // The repo whose collect workflow a company request starts (see GITHUB_TOKEN).
+  "vars": { "GITHUB_REPO": "realme72/prepradar" }
 }

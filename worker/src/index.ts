@@ -9,9 +9,16 @@
 //   POST /api/subscription/cancel    stop renewing (access lasts to the period's end)
 //   POST /api/razorpay/webhook       renewals, failures, cancellations from Razorpay
 //   GET  /api/content?company=…      a company's locked content, for subscribers
+//   POST /api/requests {company}     collect a company that isn't on the site yet
+//   GET  /api/requests?company=…     how that request is going
 //
-// Storage is two KV namespaces: CONTENT (locked data, uploaded by `npm run data:upload`)
-// and USERS (one record per Google user id: their subscription, nothing else).
+// Storage is three KV namespaces: CONTENT (locked data, uploaded by `npm run data:upload`),
+// USERS (one record per Google user id: their subscription, nothing else) and REQUESTS
+// (companies being collected, and per-day request counts).
+//
+// A request starts the "collect" GitHub Actions workflow (.github/workflows/collect.yml):
+// it runs the collector against the hosted database, then rebuilds and redeploys this
+// site. The workflow writes the outcome back to REQUESTS when nothing was found or it failed.
 import { signSession, validCheckoutSignature, validWebhookSignature, verifySession } from "./crypto.ts";
 import { verifyGoogleIdToken } from "./google.ts";
 import { HttpError, Razorpay, type Plan, type Subscription } from "./razorpay.ts";
@@ -23,8 +30,11 @@ export type Env = {
   RAZORPAY_PLAN_ID: string;
   RAZORPAY_WEBHOOK_SECRET: string;
   SESSION_SECRET: string;
+  GITHUB_TOKEN?: string; // fine-grained token: Actions read & write on GITHUB_REPO only
+  GITHUB_REPO?: string;  // "owner/name"
   CONTENT: KVNamespace;
   USERS: KVNamespace;
+  REQUESTS: KVNamespace;
   ASSETS: Fetcher;
 };
 
@@ -175,6 +185,83 @@ async function content(req: Request, env: Env) {
   return new Response(data, { headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" } });
 }
 
+// ── company requests ─────────────────────────────────────────────────────────
+// Each collection costs OpenAI and search credits, so requests need a signed-in user
+// and are capped per user and for the whole site, per UTC day.
+export const DAILY_LIMIT = { user: 2, subscriber: 5, site: 20 };
+
+type RequestRecord = { status: "queued" | "empty" | "failed"; at: number };
+// How long an outcome stands before the company can be requested again.
+const RETRY_AFTER: Record<RequestRecord["status"], number> = { queued: 3600, empty: 7 * 86400, failed: 3600 };
+
+// Lowercase, single spaces, letters/digits and a few joiners: what the collector and the
+// data file names expect. Anything else is refused, not cleaned up.
+export function companyName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const name = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  return /^[a-z0-9][a-z0-9 &.'-]{0,38}[a-z0-9.]$/.test(name) ? name : null;
+}
+
+async function onSite(req: Request, env: Env, name: string): Promise<boolean> {
+  const res = await env.ASSETS.fetch(new Request(new URL("/data/index.json", req.url)));
+  if (!res.ok) return false;
+  const index = (await res.json()) as { companies: { company: string }[] };
+  return index.companies.some((c) => c.company === name);
+}
+
+async function requestState(req: Request, env: Env, name: string) {
+  if (await onSite(req, env, name)) return { company: name, status: "ready" };
+  const r = await env.REQUESTS.get<RequestRecord>(`company:${name}`, "json");
+  return r && now() - r.at < RETRY_AFTER[r.status] ? { company: name, ...r } : { company: name, status: "none" };
+}
+
+async function count(env: Env, key: string): Promise<number> {
+  return Number((await env.REQUESTS.get(key)) ?? 0);
+}
+
+async function requestStatus(req: Request, env: Env) {
+  const name = companyName(new URL(req.url).searchParams.get("company"));
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  return json(await requestState(req, env, name));
+}
+
+async function requestCompany(req: Request, env: Env) {
+  const user = await signedInUser(req, env);
+  const name = companyName((await body<{ company?: unknown }>(req)).company);
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const state = await requestState(req, env, name);
+  if (state.status !== "none") return json(state); // on the site, being collected, or recently tried
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) throw new HttpError(503, "Requesting new companies opens soon");
+
+  // KV has no atomic increment, so two requests in the same instant can both pass; the
+  // caps are a budget guard, not an exact count.
+  const day = new Date().toISOString().slice(0, 10);
+  const userKey = `count:${day}:${user}`, siteKey = `count:${day}:site`;
+  const [mine, site] = [await count(env, userKey), await count(env, siteKey)];
+  const limit = hasAccess(await current(env, user), now()) ? DAILY_LIMIT.subscriber : DAILY_LIMIT.user;
+  if (mine >= limit) throw new HttpError(429, `You can request ${limit} new companies a day. Try again tomorrow.`);
+  if (site >= DAILY_LIMIT.site) throw new HttpError(429, "Today's new-company requests are used up. Try again tomorrow.");
+
+  const res = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/collect.yml/dispatches`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json",
+               "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "prepradar-worker" },
+    body: JSON.stringify({ ref: "main", inputs: { company: name } }),
+  });
+  if (!res.ok) {
+    console.error("workflow dispatch failed", res.status, await res.text());
+    throw new HttpError(502, "Couldn't start collecting. Try again later.");
+  }
+  const record: RequestRecord = { status: "queued", at: now() };
+  const ttl = { expirationTtl: 2 * 86400 };
+  await Promise.all([
+    env.REQUESTS.put(`company:${name}`, JSON.stringify(record), { expirationTtl: RETRY_AFTER.empty }),
+    env.REQUESTS.put(userKey, String(mine + 1), ttl),
+    env.REQUESTS.put(siteKey, String(site + 1), ttl),
+  ]);
+  return json({ company: name, ...record });
+}
+
 const ROUTES: Record<string, (req: Request, env: Env) => Promise<Response>> = {
   "GET /api/config": config,
   "POST /api/session": session,
@@ -184,6 +271,8 @@ const ROUTES: Record<string, (req: Request, env: Env) => Promise<Response>> = {
   "POST /api/subscription/cancel": cancel,
   "POST /api/razorpay/webhook": webhook,
   "GET /api/content": content,
+  "POST /api/requests": requestCompany,
+  "GET /api/requests": requestStatus,
 };
 
 export default {

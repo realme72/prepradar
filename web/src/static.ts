@@ -29,6 +29,11 @@ function load<T>(path: string): Promise<T> {
 
 const index = () => load<Index>("/data/index.json");
 
+// After a requested company is published, the cached index is out of date.
+export function reloadIndex() {
+  files.delete("/data/index.json");
+}
+
 // A subscriber's locked content per company, cached per session; resetLockedContent()
 // clears it when the user signs in or out, or subscribes.
 const locked = new Map<string, Promise<Locked | null>>();

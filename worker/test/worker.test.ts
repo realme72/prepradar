@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { beforeEach, test } from "node:test";
-import worker, { hasAccess, type Env } from "../src/index.ts";
+import worker, { DAILY_LIMIT, companyName, hasAccess, type Env } from "../src/index.ts";
 
 const CLIENT_ID = "test-client.apps.googleusercontent.com";
 const KEY_SECRET = "rzp_secret";
@@ -28,12 +28,17 @@ async function googleToken(claims: Record<string, unknown>, key = pair.privateKe
   return `${head}.${body}.${b64url(sig)}`;
 }
 
-// ── fake Razorpay ──
+// ── fake Razorpay and GitHub ──
 const subs: Record<string, Record<string, unknown>> = {};
+const dispatched: { url: string; body: any }[] = [];
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = new URL(String(input));
   const reply = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
   if (url.hostname === "www.googleapis.com") return reply({ keys: [jwk] });
+  if (url.hostname === "api.github.com") {
+    dispatched.push({ url: url.pathname, body: JSON.parse(String(init?.body)) });
+    return new Response(null, { status: 204 });
+  }
   const path = url.pathname.replace("/v1", "");
   if (path.startsWith("/plans/")) return reply({ id: "plan_1", period: "monthly", item: { amount: 4900, currency: "INR" } });
   if (path === "/subscriptions" && init?.method === "POST") {
@@ -58,11 +63,15 @@ function kv() {
 }
 const USERS = kv();
 const CONTENT = kv();
+const REQUESTS = kv();
 CONTENT.map.set("company:amazon", JSON.stringify({ company: "amazon", questions: [{ id: 9, text: "locked" }] }));
 const env = {
   GOOGLE_CLIENT_ID: CLIENT_ID, RAZORPAY_KEY_ID: "rzp_test_key", RAZORPAY_KEY_SECRET: KEY_SECRET,
   RAZORPAY_PLAN_ID: "plan_1", RAZORPAY_WEBHOOK_SECRET: WEBHOOK_SECRET, SESSION_SECRET: "session_secret",
-  CONTENT, USERS, ASSETS: { fetch: async () => new Response("asset") },
+  GITHUB_TOKEN: "gh_token", GITHUB_REPO: "me/prepradar",
+  CONTENT, USERS, REQUESTS,
+  ASSETS: { fetch: async (r: Request) => new Response(new URL(r.url).pathname === "/data/index.json"
+    ? JSON.stringify({ companies: [{ company: "amazon", questions: 3 }] }) : "asset") },
 } as unknown as Env;
 
 const read = async (res: Response): Promise<any> => res.json();
@@ -87,6 +96,8 @@ async function subscribeAndPay(token: string) {
 
 beforeEach(() => {
   USERS.map.clear();
+  REQUESTS.map.clear();
+  dispatched.length = 0;
 });
 
 test("Google sign-in gives a session; forged or foreign tokens don't", async () => {
@@ -157,4 +168,44 @@ test("config exposes only public values; other paths are static files", async ()
   assert.deepEqual(c, { google_client_id: CLIENT_ID, razorpay_key_id: "rzp_test_key",
                         plan: { amount: 4900, currency: "INR", period: "monthly" } });
   assert.equal(await (await call("GET", "/data/amazon.json")).text(), "asset");
+});
+
+test("company names are normalised, and anything odd is refused", () => {
+  assert.equal(companyName("  Cashfree   Payments "), "cashfree payments");
+  assert.equal(companyName("AT&T"), "at&t");
+  for (const bad of ["", "x", "a; rm -rf /", "$(whoami)", "a".repeat(60), 42, null]) assert.equal(companyName(bad), null);
+});
+
+test("requesting a company starts the collect workflow once, within the daily caps", async () => {
+  assert.equal((await call("POST", "/api/requests", { company: "Cashfree" })).status, 401); // sign in first
+  const token = await signIn();
+  // already on the site: nothing to collect
+  assert.equal((await read(await call("POST", "/api/requests", { company: "Amazon" }, token))).status, "ready");
+
+  const first = await read(await call("POST", "/api/requests", { company: "Cashfree" }, token));
+  assert.equal(first.status, "queued");
+  assert.deepEqual(dispatched, [{ url: "/repos/me/prepradar/actions/workflows/collect.yml/dispatches",
+                                  body: { ref: "main", inputs: { company: "cashfree" } } }]);
+  // asking again (or someone else asking) while it runs doesn't start a second run
+  await call("POST", "/api/requests", { company: "cashfree" }, await signIn("2222"));
+  assert.equal(dispatched.length, 1);
+  assert.equal((await read(await call("GET", "/api/requests?company=cashfree"))).status, "queued");
+
+  for (let i = 1; i < DAILY_LIMIT.user; i++) await call("POST", "/api/requests", { company: `company ${i}` }, token);
+  const over = await call("POST", "/api/requests", { company: "one too many" }, token);
+  assert.equal(over.status, 429);
+  assert.equal(dispatched.length, DAILY_LIMIT.user);
+});
+
+test("a company found empty isn't collected again for a week", async () => {
+  REQUESTS.map.set("company:nosuchco", JSON.stringify({ status: "empty", at: now() - 86400 }));
+  const res = await read(await call("POST", "/api/requests", { company: "nosuchco" }, await signIn()));
+  assert.equal(res.status, "empty");
+  assert.equal(dispatched.length, 0);
+});
+
+test("the site-wide cap holds across users", async () => {
+  REQUESTS.map.set(`count:${new Date().toISOString().slice(0, 10)}:site`, String(DAILY_LIMIT.site));
+  assert.equal((await call("POST", "/api/requests", { company: "newco" }, await signIn())).status, 429);
+  assert.equal(dispatched.length, 0);
 });

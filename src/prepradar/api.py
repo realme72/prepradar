@@ -4,7 +4,6 @@
 """
 import json
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -14,9 +13,6 @@ from prepradar.roles import CATEGORIES, FUNCTIONS, TRACKS, UNKNOWN, Scope
 from prepradar.store import db
 from prepradar.store.embeddings import embed_query, model
 
-REPORTS = Path("reports")
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     model()  # load the embedding model once at startup, not on the first search
@@ -24,10 +20,6 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="PrepRadar", lifespan=lifespan)
-
-
-def guide_path(scope: Scope) -> Path:
-    return REPORTS / f"{scope.slug()}.md"  # same naming as the CLI's save_guide
 
 
 def scope_of(company: str, function: str, position: str | None, track: str | None, since: int | None) -> Scope:
@@ -92,10 +84,11 @@ def search(company: str, q: str = Query(min_length=2), k: int = 10, function: st
 @app.get("/api/companies/{company}/guide")
 def guide(company: str, function: str = "Engineering", position: str | None = None,
           track: str | None = None, since: int | None = None):
-    path = guide_path(scope_of(company, function, position, track, since))
-    if not path.exists():
+    with db.connect() as conn:
+        md = db.guide(conn, scope_of(company, function, position, track, since))
+    if md is None:
         raise HTTPException(404, "No guide for these filters yet.")
-    return {"markdown": path.read_text()}
+    return {"markdown": md}
 
 
 @app.post("/api/companies/{company}/guide")
@@ -110,9 +103,8 @@ def build_guide(company: str, function: str = "Engineering", position: str | Non
     if not any(q["specific"] for q in rows):
         raise HTTPException(404, "Not enough questions for these filters to write a guide.")
     md = render_markdown(scope, write_guide(scope, rows))
-    path = guide_path(scope)
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(md)
+    with db.connect() as conn:
+        db.save_guide(conn, scope, md)
     return {"markdown": md}
 
 
@@ -142,9 +134,8 @@ def run(req: RunRequest):
                     for line in changes.get("log", []):
                         yield f"data: {json.dumps({'node': node, 'message': line})}\n\n"
             if final.get("guide_md"):
-                path = guide_path(scope)
-                path.parent.mkdir(exist_ok=True)
-                path.write_text(final["guide_md"])
+                with db.connect() as conn:
+                    db.save_guide(conn, scope, final["guide_md"])
             yield f"data: {json.dumps({'done': True, 'gaps': final.get('gaps') or []})}\n\n"
         except Exception as e:  # surface failures (quota, missing key) to the UI
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

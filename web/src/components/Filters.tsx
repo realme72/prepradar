@@ -1,4 +1,5 @@
 import type { Company, Scope, ScopeCount } from "../api";
+import { CompanyPicker } from "./CompanyPicker";
 
 type Props = {
   companies: Company[];
@@ -8,6 +9,7 @@ type Props = {
   tracks: string[];
   counts: ScopeCount[]; // questions per function/position for the picked company
   onCompany: (c: string) => void;
+  onRequest: (name: string) => void; // a company not on the site yet
   onScope: (s: Scope) => void;
 };
 
@@ -20,7 +22,7 @@ const SINCE_OPTIONS = [1, 2, 3, 5].map((n) => THIS_YEAR - n);
 // The dropdowns depend on each other: Role's options come from the chosen
 // function, and Track only exists for Engineering. Nothing here stores those
 // options; they're derived from props on every render, so they can't go stale.
-export function Filters({ companies, company, scope, ladders, tracks, counts, onCompany, onScope }: Props) {
+export function Filters({ companies, company, scope, ladders, tracks, counts, onCompany, onRequest, onScope }: Props) {
   const total = (fn: string, pos?: string) =>
     counts.filter((c) => c.function === fn && (pos === undefined || c.position === pos))
       .reduce((n, c) => n + c.questions, 0);
@@ -36,17 +38,7 @@ export function Filters({ companies, company, scope, ladders, tracks, counts, on
 
   return (
     <div className="filters">
-      <label>
-        Company
-        <select value={company ?? ""} onChange={(e) => onCompany(e.target.value)}>
-          <option value="" disabled>Pick a company</option>
-          {companies.map((c) => (
-            <option key={c.company} value={c.company}>
-              {c.company} · {c.questions}
-            </option>
-          ))}
-        </select>
-      </label>
+      <CompanyPicker key={company ?? ""} companies={companies} company={company} onPick={onCompany} onRequest={onRequest} />
       <label>
         Function
         <select value={scope.function} onChange={(e) => pickFunction(e.target.value)}>

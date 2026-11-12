@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { AccountBar, Paywall, useAccount } from "./account";
 import { STATIC, apiUrl, scopeParams, type Company, type Meta, type Question, type Scope, type ScopeCount } from "./api";
 import { CategoryTabs } from "./components/CategoryTabs";
@@ -6,10 +6,12 @@ import { Filters } from "./components/Filters";
 import { ExperiencesTab } from "./components/ExperiencesTab";
 import { GuideTab } from "./components/GuideTab";
 import { LockedQuestionCard, QuestionCard } from "./components/QuestionCard";
+import { RequestPanel } from "./components/RequestPanel";
 import { RunPanel } from "./components/RunPanel";
 import { SearchBox } from "./components/SearchBox";
 import { useApi } from "./hooks/useApi";
 import { useDebounce } from "./hooks/useDebounce";
+import { reloadIndex } from "./static";
 
 type View = "questions" | "experiences" | "guide";
 
@@ -17,6 +19,11 @@ export default function App() {
   // State: values that, when changed, make React re-render this component.
   // App owns them because several children need them ("lifting state up").
   const [company, setCompany] = useState<string | null>(null);
+  // A company typed in the picker that isn't on the site yet.
+  const [requested, setRequested] = useState<string | null>(null);
+  // Local dev: the run box, opened by such a request with the name filled in.
+  const [runOpen, setRunOpen] = useState(false);
+  const [runFor, setRunFor] = useState<string | null>(null);
   // One object for every filter that narrows the questions. Grouping them means a
   // single setScope() call changes several at once (see Filters' pickFunction).
   const [scope, setScope] = useState<Scope>({ function: "Engineering", position: "", track: "Backend", since: null });
@@ -106,12 +113,36 @@ export default function App() {
   // effect: it's a direct consequence of the user's action.
   function pickCompany(c: string) {
     setCompany(c);
+    setRequested(null);
     pickCategory(null);
     setQuery("");
   }
 
+  // The live site asks the Worker to collect it; local dev runs the pipeline right here.
+  function requestCompany(name: string) {
+    if (STATIC) {
+      setCompany(null);
+      setRequested(name);
+    } else {
+      setRunFor(name);
+      setRunOpen(true);
+    }
+  }
+
+  // RequestPanel calls this from an effect, so it keeps one identity across renders
+  // (useCallback); a new function every render would re-run that effect each time.
+  const requestReady = useCallback((c: string) => {
+    reloadIndex(); // the published index now lists it
+    setRuns((v) => v + 1);
+    setCompany(c);
+    setRequested(null);
+    setCategory(null);
+    setTopic(null);
+  }, []);
+
   // Called by RunPanel when a run finishes: show that company and refetch.
   function runFinished(c: string) {
+    setRunFor(null);
     pickCompany(c);
     setRuns((v) => v + 1);
   }
@@ -134,6 +165,7 @@ export default function App() {
         tracks={meta.data?.tracks ?? []}
         counts={scopeCounts.data ?? []}
         onCompany={pickCompany}
+        onRequest={requestCompany}
         onScope={(s) => {
           setScope(s);
           pickCategory(null);
@@ -142,14 +174,17 @@ export default function App() {
 
       {/* The live site has no backend to run the pipeline; runs happen offline. */}
       {!STATIC && (
-      <details className="run-box">
+      <details className="run-box" open={runOpen} onToggle={(e) => setRunOpen(e.currentTarget.open)}>
         <summary>{company ? `Refresh ${company} or add a company` : "Add a company"}</summary>
         {/* key: a new company resets the panel's local state (log, typed name) */}
-        <RunPanel key={company ?? ""} initialCompany={company ?? ""} scope={scope} onFinished={runFinished} />
+        <RunPanel key={runFor ?? company ?? ""} initialCompany={runFor ?? company ?? ""} scope={scope} onFinished={runFinished} />
       </details>
       )}
 
-      {!company && <p className="empty">Pick a company to see its questions.</p>}
+      {requested && <RequestPanel key={requested} name={requested} onReady={requestReady} />}
+      {!company && !requested && (
+        <p className="empty">Type a company above. If it isn't on PrepRadar yet, you can ask for it.</p>
+      )}
 
       {company && (
         <nav className="views">

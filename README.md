@@ -49,6 +49,7 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run prepradar experiences [--company X]       # backfill candidate stories (rounds, outcome, tips)
     uv run prepradar usage [--days 30]               # OpenAI tokens used, per model and purpose
     uv run prepradar export                          # data for the free live site (see docs/deploy.md)
+    uv run prepradar import-guides                   # one-off: old reports/*.md guides into the database
 
 ## Web UI (local)
 

@@ -120,3 +120,15 @@
 - **Google sign-in, verified by the Worker:** the RS256 signature is checked against Google's JWKS, along with audience, issuer and expiry. The Worker then issues its own HMAC session. The only thing stored per user is Google's numeric id plus the subscription's id, status and period end. Name and email are shown in the browser and never saved.
 - **Razorpay Subscriptions + webhooks.** Checkout is verified with HMAC(payment_id|subscription_id). Webhooks, signed over the raw body, keep renewals, halts and cancellations current. If a renewal webhook is missed, the record is refreshed from Razorpay once its paid period is over. Cancelling stops at the end of the cycle, and access lasts until then.
 - **Bug caught in the browser:** routing `/api/me` to the Worker by string prefix also caught `/api/meta`, which emptied the filters. Routes are now matched by whole path segments.
+
+## Visitors request companies (GitHub Actions + Neon)
+
+A visitor looking for a company that isn't listed had no way forward. The site now has a company search box, and any name not on the site gets a "Get questions for X" option.
+
+- **Where the collector runs.** The collector (Python, PyTorch, LangGraph) can't run in a Worker. GitHub Actions runs it for free on a public repo, and the Worker starts it with `workflow_dispatch`. A free always-on server would need a card or sleep anyway.
+- **Database.** Actions needs a database it can reach, so the data moves to Neon's free Postgres (pgvector included).
+- **Guides.** They were `reports/*.md` files, which a fresh Actions checkout doesn't have. They moved to a `guides` table; `prepradar import-guides` loaded the old files.
+- **Cost guard.** Each collection costs OpenAI and search credit, so requests need Google sign-in and are capped: 2 per user per day (5 for subscribers) and 20 for the whole site. A name found empty is blocked for a week.
+- **Concurrency.** Different companies collect side by side, but publishing is one at a time. GitHub keeps only the newest waiting publish run, which still includes everything, because each export reads the whole database.
+- **KV write budget.** The free plan allows 1,000 writes a day. The upload sends only companies whose locked content changed, tracked by a hash manifest in KV.
+- **CI install size.** On Linux, PyTorch comes from its CPU-only index. The default build pulls several GB of CUDA libraries the embedding model never uses.

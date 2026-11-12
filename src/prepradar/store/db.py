@@ -384,3 +384,27 @@ def search(conn, scope: Scope, query_vec: np.ndarray, k: int) -> list[dict]:
             ORDER BY q.embedding <=> %s LIMIT %s""",
         [query_vec, *params, query_vec, k],
     ).fetchall()
+
+
+# ── guides ───────────────────────────────────────────────────────────────────
+
+def save_guide(conn, scope: Scope, md: str) -> None:
+    conn.execute(
+        """INSERT INTO guides (slug, company, function, position, track, since, markdown)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (slug) DO UPDATE SET markdown = EXCLUDED.markdown, updated_at = now()""",
+        (scope.slug(), scope.company, scope.function, scope.position or "", scope.track or "", scope.since, md),
+    )
+    conn.commit()
+
+
+def guide(conn, scope: Scope) -> str | None:
+    row = conn.execute("SELECT markdown FROM guides WHERE slug = %s", (scope.slug(),)).fetchone()
+    return row["markdown"] if row else None
+
+
+def company_guides(conn, company: str) -> list[dict]:
+    return conn.execute(
+        "SELECT function, position, track, since, markdown FROM guides WHERE company = %s ORDER BY slug",
+        (company,),
+    ).fetchall()

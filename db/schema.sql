@@ -103,3 +103,17 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     output_tokens     INT NOT NULL,
     reasoning_tokens  INT NOT NULL DEFAULT 0
 );
+
+-- LLM-written prep guides, one per scope (Scope.slug()). In the database rather than
+-- files so the GitHub Actions collector can publish them too.
+CREATE TABLE IF NOT EXISTS guides (
+    slug        TEXT PRIMARY KEY,
+    company     TEXT NOT NULL,
+    function    TEXT NOT NULL,
+    position    TEXT NOT NULL DEFAULT '',   -- '' = all roles
+    track       TEXT NOT NULL DEFAULT '',   -- '' = all tracks
+    since       INT,
+    markdown    TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS guides_company_idx ON guides (company);

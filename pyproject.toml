@@ -15,12 +15,23 @@ dependencies = [
     "pydantic>=2.14.3",
     "python-dotenv>=1.2.4",
     "sentence-transformers>=6.2.0",
+    "torch>=2.15.0",  # listed only to pick its build below
     "trafilatura>=2.3.1",
     "uvicorn[standard]>=0.54.0",
 ]  # added once stack decisions are settled (docs/decisions.md)
 
 [project.scripts]
 prepradar = "prepradar.cli:main"
+
+# On Linux (GitHub Actions) use PyTorch's CPU-only build: the default one pulls in
+# several GB of CUDA libraries the embedding model never uses.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,105 @@
+# Collects one company's interview questions, then republishes the live site.
+# Started by the Worker when a signed-in visitor asks for a company that isn't on the
+# site (POST /api/requests), or by hand: Actions → collect → Run workflow.
+#
+# Secrets (Settings → Secrets and variables → Actions): DATABASE_URL (Neon),
+# OPENAI_API_KEY, TAVILY_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+name: collect
+
+on:
+  workflow_dispatch:
+    inputs:
+      company:
+        description: Company name, lowercase (e.g. cashfree)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  # The company reaches scripts only through this variable, never pasted into a
+  # command line, so a crafted name can't run anything.
+  COMPANY: ${{ inputs.company }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  HF_HOME: /home/runner/.cache/huggingface
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # the same company twice runs once; different companies run side by side
+    concurrency: collect-${{ inputs.company }}
+    outputs:
+      questions: ${{ steps.count.outputs.questions }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the name
+        # same rule as companyName() in worker/src/index.ts
+        run: printf '%s' "$COMPANY" | grep -Eq "^[a-z0-9][a-z0-9 &.'-]{0,38}[a-z0-9.]$"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/huggingface
+          key: hf-bge-small-en-v1.5
+      - run: uv sync --locked
+      - run: npm ci --prefix worker
+      - name: Collect
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: uv run prepradar run "$COMPANY" --function Engineering
+      - id: count
+        run: echo "questions=$(uv run prepradar count "$COMPANY" 2>/dev/null | tail -1)" >> "$GITHUB_OUTPUT"
+      # Tell the site how it went when there's nothing to publish (it shows "ready"
+      # by itself once the company is in the published index).
+      - name: Nothing found
+        if: steps.count.outputs.questions == '0'
+        working-directory: worker
+        run: npx wrangler kv key put "company:$COMPANY" "{\"status\":\"empty\",\"at\":$(date +%s)}" --binding REQUESTS --remote --ttl 604800
+      - name: Failed
+        if: failure()
+        working-directory: worker
+        run: npx wrangler kv key put "company:$COMPANY" "{\"status\":\"failed\",\"at\":$(date +%s)}" --binding REQUESTS --remote --ttl 3600
+
+  publish:
+    needs: collect
+    if: needs.collect.outputs.questions != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # One deploy at a time. While one runs, GitHub keeps only the newest waiting run,
+    # which is fine: every export reads the whole database, so it includes the
+    # companies the replaced runs collected.
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            worker/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/huggingface
+          key: hf-bge-small-en-v1.5
+      - run: uv sync --locked
+      - run: uv run prepradar export
+      - run: npm ci --prefix web && npm --prefix web run build:static
+      - run: npm ci --prefix worker
+      - run: npm --prefix worker run data:upload -- --remote
+      - run: npm --prefix worker run deploy

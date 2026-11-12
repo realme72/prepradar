@@ -18,7 +18,8 @@ export class ApiError extends Error {
 
 // Routes the live site's Worker really serves; every other /api URL is answered in the
 // browser from static JSON.
-const WORKER_ROUTES = ["/api/config", "/api/me", "/api/content", "/api/session", "/api/subscribe", "/api/subscription"];
+const WORKER_ROUTES = ["/api/config", "/api/me", "/api/content", "/api/session", "/api/subscribe", "/api/subscription",
+                       "/api/requests"];
 
 // The signed-in user's token, on requests to the Worker.
 function authHeaders(): Record<string, string> {
@@ -106,6 +107,13 @@ export type Experience = {
   tips: string[];
   url: string;
   site: string;
+};
+
+// A visitor's request to collect a company that isn't on the site (live site only).
+export type CompanyRequest = {
+  company: string;
+  status: "none" | "queued" | "ready" | "empty" | "failed";
+  at?: number; // when it was queued or finished, unix seconds
 };
 
 export type ScopeCount = { function: string; position: string; questions: number };

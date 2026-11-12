@@ -1,6 +1,12 @@
 // Upload each company's locked content (private/<company>.json, written by `prepradar
 // export`) to the CONTENT KV namespace. Local dev store by default; --remote for live.
-import { readdirSync } from "node:fs";
+//
+// Only files that changed since the last upload are sent: a "manifest" key holds each
+// company's content hash. KV's free plan allows 1,000 writes a day, and every new-company
+// request republishes, so re-uploading all companies each time would run out.
+// --all uploads everything regardless.
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -8,13 +14,36 @@ const dir = decodeURIComponent(new URL("../../private/", import.meta.url).pathna
 const where = process.argv.includes("--remote") ? "--remote" : "--local";
 const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
 if (!files.length) {
-  console.error("No pack files; run `uv run prepradar export` first.");
+  console.error("No locked-content files; run `uv run prepradar export` first.");
   process.exit(1);
 }
+
+function wrangler(args, opts = {}) {
+  const r = spawnSync("npx", ["wrangler", "kv", "key", ...args, "--binding", "CONTENT", where],
+                      { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], ...opts });
+  if (r.status !== 0) process.exit(r.status ?? 1);
+  return r.stdout;
+}
+
+let manifest = {};
+if (!process.argv.includes("--all")) {
+  try {
+    manifest = JSON.parse(wrangler(["get", "manifest", "--text"], { stdio: ["ignore", "pipe", "ignore"] }));
+  } catch {
+    manifest = {}; // first upload: no manifest yet
+  }
+}
+
+const next = { ...manifest };
+let sent = 0;
 for (const f of files) {
   const id = f.replace(/\.json$/, "");
-  const r = spawnSync("npx", ["wrangler", "kv", "key", "put", `company:${id}`, "--binding", "CONTENT", "--path", join(dir, f), where],
-                      { stdio: ["ignore", "ignore", "inherit"] });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  const hash = createHash("sha256").update(readFileSync(join(dir, f))).digest("hex");
+  if (manifest[id] === hash) continue;
+  wrangler(["put", `company:${id}`, "--path", join(dir, f)]);
+  next[id] = hash;
+  sent += 1;
   console.log(`uploaded company:${id} (${where.slice(2)})`);
 }
+if (sent) wrangler(["put", "manifest", JSON.stringify(next)]);
+console.log(`${sent} of ${files.length} companies changed`);

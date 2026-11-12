@@ -7,8 +7,18 @@ The live site is one Cloudflare Worker:
   - **Google sign-in:** the Worker checks Google's signed token and issues its own session.
   - **₹49/month Razorpay subscriptions:** checkout, verify, cancel, and webhooks for renewals and failures.
   - **`/api/content`:** sends a company's locked content, from KV, to signed-in subscribers.
+  - **`/api/requests`:** a signed-in visitor asks for a company that isn't on the site. The Worker starts the `collect` GitHub Actions workflow, which collects it into the Neon database, then exports, rebuilds and redeploys the site. That takes about 10 minutes; the page waits and opens the company when it's live.
 
-Your laptop or database is never needed to serve visitors. OpenAI and Tavily keys are only used when you run the pipeline.
+Serving visitors never needs your laptop. The database lives on Neon (free), and OpenAI and Tavily keys are only used by the collector: on your laptop, or in GitHub Actions as repository secrets.
+
+```
+visitor types "swiggy" ─▶ Worker /api/requests (signed in, under the daily caps)
+                            └─▶ GitHub Actions "collect" ─▶ OpenAI + Tavily ─▶ Neon
+                                    └─▶ export ─▶ build ─▶ KV upload ─▶ wrangler deploy
+page polls /api/requests every 30s ─▶ "ready" once swiggy is in the published index
+```
+
+Caps, in `worker/src/index.ts` (`DAILY_LIMIT`): 2 new companies per signed-in user per day (5 for subscribers), 20 for the whole site. A company found empty can't be requested again for a week. Each collection costs a few rupees of OpenAI and search credit; `uv run prepradar usage` shows the totals.
 
 ```
 uv run prepradar run amazon …          # refresh data (laptop, later GitHub Actions)
@@ -17,6 +27,16 @@ npm --prefix web run build:static      # web/dist
 npm --prefix worker run data:upload -- --remote   # private/*.json → KV
 npm --prefix worker run deploy         # site + API live
 ```
+
+## 0. Database on Neon (free)
+
+1. Sign up at https://neon.tech. Create a project with the newest Postgres version, in the AWS Singapore region (closest to India).
+2. Copy the connection string (`postgresql://…neon.tech/neondb?sslmode=require`).
+3. Copy your local data across (pgvector is built in on Neon):
+   ```
+   pg_dump --no-owner --no-privileges prepradar | psql "<neon connection string>"
+   ```
+4. In `.env`, set `DATABASE_URL` to the Neon string. From then on, laptop runs and GitHub Actions share one database. Your local Postgres stays as a backup.
 
 ## 1. Google sign-in (free)
 
@@ -53,10 +73,11 @@ Open the local site at **http://localhost:8787**, not 127.0.0.1. Google only acc
 ## 3. Deploy to Cloudflare (free plan)
 
 1. In `worker/`, run `npx wrangler login`. It opens the browser.
-2. Create the two KV namespaces and paste their ids into `worker/wrangler.jsonc`:
+2. Create the KV namespaces and paste their ids into `worker/wrangler.jsonc` (the ids aren't secret, so they can be committed):
    ```
    npx wrangler kv namespace create CONTENT
    npx wrangler kv namespace create USERS
+   npx wrangler kv namespace create REQUESTS
    ```
 3. Set the secrets. Each command prompts for its value, which never goes in a file:
    ```
@@ -68,6 +89,24 @@ Open the local site at **http://localhost:8787**, not 127.0.0.1. Google only acc
    npx wrangler secret put SESSION_SECRET      # a new `openssl rand -hex 32`
    ```
 4. Run `npm --prefix worker run data:upload -- --remote`, then `npm --prefix worker run deploy`. Add the printed URL to Google's authorized origins and to Razorpay's webhook.
+
+## 3b. Let visitors request companies
+
+1. **GitHub repository secrets.** Under Settings → Secrets and variables → Actions → New repository secret, add:
+   - `DATABASE_URL` (Neon);
+   - `OPENAI_API_KEY`;
+   - `TAVILY_API_KEY`;
+   - `CLOUDFLARE_ACCOUNT_ID` (shown on the Cloudflare dashboard's Workers page);
+   - `CLOUDFLARE_API_TOKEN`: on Cloudflare, go to My Profile → API Tokens → Create Token and use the "Edit Cloudflare Workers" template. It lets the workflow deploy and write KV.
+2. **Try it by hand:** Actions → collect → Run workflow, then type a company. When it finishes, the company is on the live site.
+3. **Let the Worker start it.** Create a fine-grained GitHub token (Settings → Developer settings → Fine-grained tokens):
+   - Repository access: only `prepradar`;
+   - Permissions: Actions → Read and write. Nothing else.
+
+   Then run `npx wrangler secret put GITHUB_TOKEN` in `worker/`. `GITHUB_REPO` is set in `wrangler.jsonc`.
+4. Create the third KV namespace: `npx wrangler kv namespace create REQUESTS`. Paste its id into `wrangler.jsonc`.
+
+Until `GITHUB_TOKEN` is set, the site says "Requesting new companies opens soon." Without it, the companies you add from your laptop still go live with the usual export, build, upload and deploy.
 
 ## 4. Take real money
 
@@ -83,3 +122,6 @@ Open the local site at **http://localhost:8787**, not 127.0.0.1. Google only acc
 - Stored per user: Google's numeric user id, plus subscription id, status and period end. No names, emails or passwords.
 - Sessions are signed with `SESSION_SECRET` and last 30 days. Changing the secret signs everyone out; their subscriptions are kept.
 - `private/` and `worker/.dev.vars` are gitignored. The repo is public, so keep it that way.
+- The workflow's secrets are only readable by workflow runs on this repo. A fork's pull request can't use them, and `collect` only runs on `workflow_dispatch`.
+- A requested name must match `[a-z0-9 &.'-]` and be 2–40 characters, checked in both the Worker and the workflow. It reaches shell commands only as an environment variable, never pasted into a command.
+- The GitHub token can only start workflows on this one repo; it can't read code or secrets, or push.

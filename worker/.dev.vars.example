@@ -15,3 +15,9 @@ RAZORPAY_WEBHOOK_SECRET=change-me
 
 # Any long random string; signs session tokens. Generate with: openssl rand -hex 32
 SESSION_SECRET=change-me
+
+# Optional: lets visitors request companies that aren't on the site. GitHub → Settings →
+# Developer settings → Fine-grained tokens: only the prepradar repo, permission
+# "Actions: Read and write", nothing else. Leave empty locally unless you want a local
+# request to start a real collect run.
+GITHUB_TOKEN=

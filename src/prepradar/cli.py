@@ -133,11 +133,48 @@ def cmd_report(scope: Scope) -> None:
     print_report(questions, report_header(scope))
 
 
-def save_guide(scope: Scope, md: str) -> Path:
-    out = Path("reports") / f"{scope.slug()}.md"  # same naming as the API's guide_path
-    out.parent.mkdir(exist_ok=True)
-    out.write_text(md)
-    return out
+def save_guide(scope: Scope, md: str) -> str:
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        db.save_guide(conn, scope, md)
+    return f"guide {scope.slug()}"
+
+
+def cmd_import_guides(folder: Path) -> None:
+    """One-off: guides used to be saved as reports/<slug>.md. Load those into the
+    guides table (a file whose guide is already there is skipped)."""
+    from datetime import date
+
+    from prepradar.roles import UNKNOWN
+    from prepradar.store import db
+
+    files = {p.stem: p for p in folder.glob("*.md")}
+    years = [None] + [date.today().year - n for n in range(1, 11)]
+    added = 0
+    with db.connect() as conn:
+        companies = [r["company"] for r in conn.execute("SELECT DISTINCT company FROM questions")]
+        # a slug can't be split back into its parts ("jp-morgan-engineering"), so
+        # generate every scope and look its slug up
+        for company in companies:
+            for fn, f in FUNCTIONS.items():
+                for pos in [None] + f.positions + [UNKNOWN]:
+                    for track in [None] + (TRACKS if fn == "Engineering" else []):
+                        for since in years:
+                            scope = Scope(company, fn, pos, track, since)
+                            path = files.pop(scope.slug(), None)
+                            if path and db.guide(conn, scope) is None:
+                                db.save_guide(conn, scope, path.read_text())
+                                added += 1
+    print(f"imported {added} guides" + (f"; no matching scope for: {', '.join(sorted(files))}" if files else ""))
+
+
+def cmd_count(company: str) -> None:
+    """Prints how many questions a company has (the collect workflow checks for 0)."""
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        print(conn.execute("SELECT count(*) AS n FROM questions WHERE company = %s", (company,)).fetchone()["n"])
 
 
 def cmd_run(scope: Scope, limit: int, refresh: bool, list_only: bool) -> None:
@@ -544,6 +581,10 @@ def main() -> None:
     p.add_argument("--file", help="read the text from a file instead of stdin")
 
     sub.add_parser("export", help="write the static site's data (web/public/data/*.json)")
+    p = sub.add_parser("import-guides", help="one-off: load old reports/*.md guide files into the database")
+    p.add_argument("folder", nargs="?", default="reports", type=Path)
+    p = sub.add_parser("count", help="number of questions stored for a company")
+    p.add_argument("company")
 
     p = sub.add_parser("usage", help="OpenAI tokens used, per model and purpose")
     p.add_argument("--days", type=int, default=30)
@@ -592,6 +633,10 @@ def run(args: argparse.Namespace) -> None:
         cmd_paste(args.company, args.url, args.file)
     elif args.cmd == "export":
         cmd_export()
+    elif args.cmd == "import-guides":
+        cmd_import_guides(args.folder)
+    elif args.cmd == "count":
+        cmd_count(args.company.strip().lower())
     elif args.cmd == "usage":
         cmd_usage(args.days)
 
