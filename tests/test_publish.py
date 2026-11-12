@@ -27,7 +27,7 @@ OA then loops.
 
 def test_a_locked_story_carries_no_content():
     story = {"id": 1, "function": "Engineering", "position": "SDE 2", "track": "Backend", "interview_year": 2025,
-             "posted_year": None, "outcome": "Offer", "difficulty": "Hard", "summary": "secret",
+             "posted_year": None, "posted_month": "2025-03", "outcome": "Offer", "difficulty": "Hard", "summary": "secret",
              "rounds": [{"name": "OA", "kind": "OA", "summary": "secret"}], "tips": ["secret"],
              "url": "https://x", "site": "x", "role": "SDE-II", "duration": "3 weeks"}
     t = story_outline(story)
@@ -37,7 +37,7 @@ def test_a_locked_story_carries_no_content():
 
 def q(id, cat="DSA", reported=1, specific=True, fn="Engineering"):
     return {"id": id, "specific": specific, "category": cat, "function": fn, "times_reported": reported,
-            "interview_year": 2025, "posted_year": None, "round": "Technical", "position": "SDE 2",
+            "interview_year": 2025, "posted_year": None, "posted_month": None, "round": "Technical", "position": "SDE 2",
             "track": "Backend", "topics": ["Graphs"], "text": f"secret question {id}", "urls": ["https://x"],
             "e": "AAAA"}
 

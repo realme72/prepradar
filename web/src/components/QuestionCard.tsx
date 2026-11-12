@@ -1,21 +1,17 @@
 import type { Question } from "../api";
+import { whenLabel } from "../dates";
 
 // Props are a component's inputs, like function arguments. The parent decides
 // what to pass; this component only displays it. No state, no fetching: a
 // "presentational" component, the easiest kind to reuse and test.
 type Props = { question: Question };
 
-function yearLabel(q: Question) {
-  if (q.interview_year) return `interviewed ${q.interview_year}`;
-  return q.posted_year ? `posted ${q.posted_year}` : null;
-}
-
 function hostOf(url: string) {
   return new URL(url).hostname.replace(/^www\./, "");
 }
 
 export function QuestionCard({ question: q }: Props) {
-  const year = yearLabel(q);
+  const year = whenLabel(q);
   return (
     <article className="card">
       <p className="card-text">{q.text}</p>

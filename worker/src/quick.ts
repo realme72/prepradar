@@ -33,7 +33,8 @@ const PAGE_CHARS = 6000; // per page: enough for a write-up's question list, sho
 const MAX_QUESTIONS = 40;
 
 export type QuickSource = { url: string; title: string; site: string };
-export type QuickQuestion = { text: string; category: string; source: number }; // source: index into sources
+// source: index into sources; posted: "2025-03", when the write-up was posted, if the page says
+export type QuickQuestion = { text: string; category: string; source: number; posted?: string };
 export type QuickResult = { company: string; at: number; sources: QuickSource[]; questions: QuickQuestion[] };
 type Page = QuickSource & { text: string };
 
@@ -73,7 +74,8 @@ Rules:
 - Never invent questions. If the pages report none, output nothing.
 - At most 15 questions, in the order the page reports them. No duplicates.
 
-Output one JSON object per line and nothing else (no array, no code fences):
+Output one JSON object per line and nothing else (no array, no code fences). If the page shows when it
+was posted or last updated, start with {"posted": "YYYY-MM"} (never guess the date). Then one per question:
 {"q": "<question>", "category": "<one of: ${CATEGORIES.join(", ")}>"}`;
   return { system, user: `${page.title} (${page.url})\n\n${page.text}` };
 }
@@ -87,18 +89,30 @@ const VAGUE = [
 
 export const isVague = (text: string) => VAGUE.some((r) => r.test(text));
 
-// One line of model output -> a question from page `source`, or null if it isn't one.
-export function parseLine(line: string, source: number): QuickQuestion | null {
+function parseObject(line: string): Record<string, unknown> | null {
   const s = line.trim().replace(/,$/, "");
   if (!s.startsWith("{")) return null;
   try {
-    const o = JSON.parse(s) as { q?: unknown; category?: unknown };
-    if (typeof o.q !== "string" || o.q.trim().length < 8 || isVague(o.q.trim())) return null;
-    const category = typeof o.category === "string" && CATEGORIES.includes(o.category) ? o.category : "Other";
-    return { text: o.q.trim(), category, source };
+    return JSON.parse(s) as Record<string, unknown>;
   } catch {
     return null;
   }
+}
+
+// One line of model output -> a question from page `source`, or null if it isn't one.
+export function parseLine(line: string, source: number, posted?: string): QuickQuestion | null {
+  const o = parseObject(line);
+  if (!o || typeof o.q !== "string" || o.q.trim().length < 8 || isVague(o.q.trim())) return null;
+  const category = typeof o.category === "string" && CATEGORIES.includes(o.category) ? o.category : "Other";
+  return { text: o.q.trim(), category, source, ...(posted && { posted }) };
+}
+
+// The page's {"posted": "YYYY-MM"} line, if this is it and the month is plausible.
+export function parsePosted(line: string, now = new Date()): string | null {
+  const p = parseObject(line)?.posted;
+  if (typeof p !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(p)) return null;
+  const year = Number(p.slice(0, 4));
+  return year >= 2005 && p <= now.toISOString().slice(0, 7) ? p : null;
 }
 
 // Reads every page at once (one streamed call each) and calls onQuestion for each new
@@ -114,8 +128,13 @@ export async function extractQuestions(company: string, pages: Page[], key: stri
     }
   };
   // one failed page shouldn't lose the others' questions
-  const results = await Promise.allSettled(
-    pages.map((page, i) => streamLines(prompt(company, page), key, model, (line) => found(parseLine(line, i)))));
+  const results = await Promise.allSettled(pages.map((page, i) => {
+    let posted: string | undefined; // the page's first line, when it has a date
+    return streamLines(prompt(company, page), key, model, async (line) => {
+      posted = parsePosted(line) ?? posted;
+      await found(parseLine(line, i, posted));
+    });
+  }));
   if (results.every((r) => r.status === "rejected")) throw (results[0] as PromiseRejectedResult).reason;
 }
 

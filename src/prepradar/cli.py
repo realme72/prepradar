@@ -454,6 +454,39 @@ def cmd_experiences(company: str | None, redo: bool) -> None:
           f"{unreadable} couldn't be fetched")
 
 
+def cmd_dates(company: str | None) -> None:
+    """Backfill sources' publish dates (posted_on), stored only as a year before. Reads
+    each page's metadata again: no model calls. Pages that give no date stay without one."""
+    from prepradar.sources.fetch import fetch, paste_only
+    from prepradar.store import db
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            """SELECT id, url FROM sources WHERE status = 'extracted' AND posted_on IS NULL
+                 AND (%s::text IS NULL OR company = %s) ORDER BY id""",
+            (company, company),
+        ).fetchall()
+        found = 0
+        for r in rows:
+            page = None if paste_only(r["url"]) else fetch(r["url"])
+            posted_on = db.posted_date(page.published if page else None)
+            if posted_on is None:
+                continue
+            conn.execute("UPDATE sources SET posted_on = %s, posted_year = %s WHERE id = %s",
+                         (posted_on, posted_on.year, r["id"]))
+            # rows stored without a year get this one (the year filter uses it)
+            conn.execute("UPDATE experiences SET posted_year = %s WHERE source_id = %s AND posted_year IS NULL",
+                         (posted_on.year, r["id"]))
+            conn.execute(
+                """UPDATE questions q SET posted_year = %s FROM question_sources s
+                   WHERE s.question_id = q.id AND s.source_id = %s AND q.posted_year IS NULL""",
+                (posted_on.year, r["id"]))
+            conn.commit()
+            found += 1
+            print(f"  {posted_on:%b %Y}  {r['url']}")
+    print(f"{found} of {len(rows)} sources dated")
+
+
 def cmd_usage(days: int) -> None:
     """Tokens per model and purpose, from the llm_usage log. Calls made before the log
     existed aren't in it; the OpenAI dashboard has the full history and the cost."""
@@ -586,6 +619,9 @@ def main() -> None:
     p = sub.add_parser("count", help="number of questions stored for a company")
     p.add_argument("company")
 
+    p = sub.add_parser("dates", help="backfill write-ups' publish dates (month) from page metadata")
+    p.add_argument("--company")
+
     p = sub.add_parser("usage", help="OpenAI tokens used, per model and purpose")
     p.add_argument("--days", type=int, default=30)
 
@@ -637,6 +673,8 @@ def run(args: argparse.Namespace) -> None:
         cmd_import_guides(args.folder)
     elif args.cmd == "count":
         cmd_count(args.company.strip().lower())
+    elif args.cmd == "dates":
+        cmd_dates(args.company and args.company.strip().lower())
     elif args.cmd == "usage":
         cmd_usage(args.days)
 

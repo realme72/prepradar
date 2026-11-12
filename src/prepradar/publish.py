@@ -46,7 +46,8 @@ def _company_questions(conn, company: str) -> list[dict]:
 def _company_stories(conn, company: str) -> list[dict]:
     return conn.execute(
         """SELECT e.id, e.role, e.function, e.position, e.track, e.interview_year, e.posted_year, e.outcome,
-                  e.difficulty, e.duration, e.summary, e.rounds, e.tips, s.url, s.site
+                  e.difficulty, e.duration, e.summary, e.rounds, e.tips, s.url, s.site,
+                  to_char(s.posted_on, 'YYYY-MM') AS posted_month
            FROM experiences e JOIN sources s ON s.id = e.source_id WHERE e.company = %s
            ORDER BY coalesce(e.interview_year, e.posted_year) DESC NULLS LAST, e.id DESC""",
         (company,),
@@ -66,13 +67,13 @@ def question_outline(q: dict) -> dict:
     """A locked question on the public site: where it belongs and how often it came up,
     but not its text, sources or embedding."""
     return {k: q[k] for k in ("id", "specific", "category", "round", "function", "position", "track",
-                              "interview_year", "posted_year", "times_reported", "topics")} | {"locked": True}
+                              "interview_year", "posted_year", "posted_month", "times_reported", "topics")} | {"locked": True}
 
 
 def story_outline(story: dict) -> dict:
     """A locked story on the public site: enough to see it exists, none of its content."""
     return {k: story[k] for k in ("id", "function", "position", "track", "interview_year", "posted_year",
-                                  "outcome", "difficulty")} | {"rounds_count": len(story["rounds"]), "locked": True}
+                                  "posted_month", "outcome", "difficulty")} | {"rounds_count": len(story["rounds"]), "locked": True}
 
 
 def guide_outline(g: dict) -> dict:

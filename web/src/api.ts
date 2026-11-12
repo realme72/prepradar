@@ -61,6 +61,7 @@ export type Question = {
   role: string | null;
   interview_year: number | null;
   posted_year: number | null;
+  posted_month?: string | null; // "2025-03": the newest write-up reporting it
   times_reported: number;
   topics: string[] | null;
   urls: string[] | null;
@@ -99,6 +100,7 @@ export type Experience = {
   position: string;
   interview_year: number | null;
   posted_year: number | null;
+  posted_month?: string | null; // "2025-03", from the write-up's page
   outcome: "Offer" | "Rejected" | "Withdrew" | "Pending" | "Unknown";
   difficulty: "Easy" | "Medium" | "Hard" | "Unknown";
   duration: string | null;
@@ -118,7 +120,8 @@ export type CompanyRequest = {
 
 // The quick live pass (live site only): a first set of questions, streamed in seconds.
 export type QuickSource = { url: string; title: string; site: string };
-export type QuickQuestion = { text: string; category: string; source: number }; // source: index into sources
+// source: index into sources; posted: "2025-03", when the write-up was posted, if the page says
+export type QuickQuestion = { text: string; category: string; source: number; posted?: string };
 export type QuickResult = { company: string; at: number; sources: QuickSource[]; questions: QuickQuestion[] };
 export type QuickEvent =
   | { type: "sources"; sources: QuickSource[] }

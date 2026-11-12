@@ -117,3 +117,7 @@ CREATE TABLE IF NOT EXISTS guides (
     updated_at  TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS guides_company_idx ON guides (company);
+
+-- The write-up's publish date from the page's metadata (posted_year is its year). Shown
+-- as a month on the site: "posted Mar 2025" says more about how current a question is.
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS posted_on DATE;

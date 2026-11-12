@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, apiUrl, getJson, postJson, streamQuick, type CompanyRequest, type QuickEvent, type QuickResult } from "../api";
 import { GoogleButton, useAccount } from "../account";
+import { monthLabel } from "../dates";
 
 type Props = {
   name: string;
@@ -19,7 +20,7 @@ function hostOf(url: string) {
 // A company that isn't on the site yet. Two things happen when someone asks for it:
 //  - the quick pass: one web search and one AI read, streamed, so questions start
 //    appearing within seconds (and are cached for the next visitor);
-//  - the full collection on GitHub Actions (~10 minutes), which checks every source,
+//  - the full collection on GitHub Actions (15–25 minutes), which checks every source,
 //    merges duplicates, adds candidate stories and a guide, then republishes the site.
 //
 // App renders this with key={name}, so a different name starts over with fresh state.
@@ -75,7 +76,7 @@ export function RequestPanel({ name, onReady }: Props) {
       setPhase("streaming");
     } else if (e.type === "question") {
       // functional update: events arrive faster than renders, so build on the latest state
-      setQuick((q) => q && { ...q, questions: [...q.questions, { text: e.text, category: e.category, source: e.source }] });
+      setQuick((q) => q && { ...q, questions: [...q.questions, { text: e.text, category: e.category, source: e.source, posted: e.posted }] });
     } else if (e.type === "collect") {
       if (e.status !== "unavailable") setRequest({ company: name, status: e.status, at: e.at });
       else setCollectNote(e.detail ?? null);
@@ -152,6 +153,7 @@ export function RequestPanel({ name, onReady }: Props) {
                   <p className="card-text">{q.text}</p>
                   <div className="card-meta">
                     <span className="badge">{q.category}</span>
+                    {q.posted && <span className="muted">posted {monthLabel(q.posted)}</span>}
                     {src && <a href={src.url} target="_blank" rel="noreferrer">{hostOf(src.url)}</a>}
                   </div>
                 </article>

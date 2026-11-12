@@ -15,3 +15,12 @@ def test_other_sites_fetch_first(monkeypatch):
     page = fetch.load_page("https://www.geeksforgeeks.org/zemoso", "Zemoso Interview", TEXT)
     assert calls == ["https://www.geeksforgeeks.org/zemoso"]  # tried first, returned None
     assert page.title == "Zemoso Interview"  # fell back to provider text
+
+
+def test_posted_date_reads_page_metadata():
+    from datetime import date
+
+    from prepradar.store.db import posted_date
+    assert posted_date("2025-03-14") == date(2025, 3, 14)
+    assert posted_date("2025-03-14T10:00:00") == date(2025, 3, 14)
+    assert posted_date(None) is None and posted_date("") is None and posted_date("March 2025") is None

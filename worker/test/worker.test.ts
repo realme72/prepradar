@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { beforeEach, test } from "node:test";
 import worker, { DAILY_LIMIT, QUICK_LIMIT, companyName, hasAccess, type Env } from "../src/index.ts";
-import { parseLine, usablePage } from "../src/quick.ts";
+import { parseLine, parsePosted, usablePage } from "../src/quick.ts";
 
 const CLIENT_ID = "test-client.apps.googleusercontent.com";
 const KEY_SECRET = "rzp_secret";
@@ -46,7 +46,7 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
   }
   if (url.hostname === "api.openai.com") {
     // a streamed reply whose lines are split across events, as the real API does
-    const text = '{"q": "Reverse a singly linked list.", "category": "DSA"}\n{"q": "Design an LRU cache.", "categ' +
+    const text = '{"posted": "2025-03"}\n{"q": "Reverse a singly linked list.", "category": "DSA"}\n{"q": "Design an LRU cache.", "categ' +
                  'ory": "LLD"}\nHere is a line that isn\'t JSON\n{"q": "Reverse a singly-linked list!", "category": "DSA"}\n';
     const events = text.match(/.{1,20}/gs)!.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`);
     return new Response(events.join("") + "data: [DONE]\n\n", { status: 200 });
@@ -247,8 +247,8 @@ test("the quick pass streams questions from candidate pages, then caches them fo
   const sources = events.find((e) => e.type === "sources").sources;
   assert.deepEqual(sources.map((s: any) => s.site), ["geeksforgeeks.org"]); // people-data and company site dropped
   const questions = events.filter((e) => e.type === "question");
-  assert.deepEqual(questions.map((q) => [q.text, q.category, q.source]),
-                   [["Reverse a singly linked list.", "DSA", 0], ["Design an LRU cache.", "LLD", 0]]); // junk and near-duplicate dropped
+  assert.deepEqual(questions.map((q) => [q.text, q.category, q.source, q.posted]),
+                   [["Reverse a singly linked list.", "DSA", 0, "2025-03"], ["Design an LRU cache.", "LLD", 0, "2025-03"]]); // junk and near-duplicate dropped
   assert.equal(events.find((e) => e.type === "collect").status, "queued"); // full collection started too
   assert.deepEqual(events.at(-1), { type: "done", count: 2 });
 
@@ -278,6 +278,12 @@ test("quick-pass helpers", () => {
                       "Solve N-Queens."]) {
     assert.ok(parseLine(JSON.stringify({ q: real, category: "DSA" }), 0), real);
   }
+  const now = new Date("2026-11-13");
+  assert.equal(parsePosted('{"posted": "2024-07"}', now), "2024-07");
+  for (const bad of ['{"posted": "2027-01"}', '{"posted": "2024-13"}', '{"posted": "July 2024"}', '{"posted": null}', "posted: 2024"]) {
+    assert.equal(parsePosted(bad, now), null, bad);
+  }
+  assert.equal(parseLine('{"posted": "2024-07"}', 0), null); // the date line isn't a question
   assert.equal(usablePage("https://www.linkedin.com/in/someone", "deloitte", "deloitte"), false);
   assert.equal(usablePage("https://www.linkedin.com/posts/x-deloitte-interview", "deloitte interview", "deloitte"), true);
   assert.equal(usablePage("https://medium.com/@a/interview", "an interview at another firm", "deloitte"), false);

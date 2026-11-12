@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { Experience } from "../api";
 import { useApi } from "../hooks/useApi";
 import { Paywall } from "../account";
+import { whenLabel } from "../dates";
 
 type Props = { url: string; version: number; company: string };
 type Outcome = Experience["outcome"];
@@ -65,7 +66,7 @@ export function ExperiencesTab({ url, version, company }: Props) {
 }
 
 function LockedCard({ story: e }: { story: Experience }) {
-  const year = e.interview_year ?? e.posted_year;
+  const year = whenLabel(e);
   return (
     <article className="card story locked">
       <div className="card-meta">
@@ -82,7 +83,7 @@ function LockedCard({ story: e }: { story: Experience }) {
 // Defined at module level, not inside ExperiencesTab: a component defined inside
 // another is a new type on every render, so React would remount every card.
 function ExperienceCard({ story: e }: { story: Experience }) {
-  const year = e.interview_year ? `interviewed ${e.interview_year}` : e.posted_year ? `posted ${e.posted_year}` : null;
+  const year = whenLabel(e);
   return (
     <article className="card story">
       <div className="card-meta">

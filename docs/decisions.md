@@ -146,3 +146,9 @@ A full collection takes 3–10 minutes, and people searching a company won't wai
 ## Free tier cut to 2 questions per company
 
 Half of each category was free, which gave away most of the value. Now anyone not subscribed, signed in or not, sees each company's 2 most reported questions and 2 newest stories. Everything else, including vague reports and every prep guide, is in the subscriber file served from KV. The public file only shows that a guide exists. Signing in alone unlocks nothing; it's needed to subscribe and for quick searches.
+
+## Posting month
+
+- **Sources keep the full publish date** (`posted_on`), not just the year, so cards say "posted Mar 2025". A question shows its newest write-up's month; one with a stated interview year shows both ("interviewed 2024 · posted Mar 2025").
+- **The date comes from the page's metadata** (trafilatura), never from the model. Pages read from the search provider's text have none and keep showing a year or nothing. `prepradar dates` re-fetched older sources to fill it in.
+- **The quick pass asks the model for the month** only when the page shows it (`{"posted": "YYYY-MM"}` as its first line). Months in the future or before 2005 are dropped.

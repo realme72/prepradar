@@ -68,16 +68,16 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
         if page is None:
             print(f"  blocked/empty, will retry next run  {c.url}")
             continue
-        posted_year = int(page.published[:4]) if page.published else None
+        posted_on = db.posted_date(page.published)
         same = db.find_same_post(conn, company, page.text, page.title)
         if same:
-            db.add_source(conn, c.url, company, "duplicate", page.site, page.title, posted_year, page.text)
+            db.add_source(conn, c.url, company, "duplicate", page.site, page.title, posted_on, page.text)
             conn.commit()
             print(f"  same post as {same}, skipped  {c.url}")
             continue
         firsthand, qs = extract(page, company, db.vocabulary(conn))
         status = "extracted" if firsthand else "not_firsthand"
-        source_id = db.add_source(conn, c.url, company, status, page.site, page.title, posted_year, page.text)
+        source_id = db.add_source(conn, c.url, company, status, page.site, page.title, posted_on, page.text)
         if not firsthand:
             stats.rejected += 1
             conn.commit()
@@ -87,7 +87,7 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
 
         dups, new_tags, mapped = store_questions(conn, qs, source_id)
         exps = extract_experiences(page, company)
-        db.add_experiences(conn, source_id, company, posted_year, exps)
+        db.add_experiences(conn, source_id, company, posted_on and posted_on.year, exps)
         conn.commit()
         stats.experiences += len(exps)
         stats.questions += len(qs)

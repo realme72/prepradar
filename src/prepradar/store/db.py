@@ -4,6 +4,7 @@ pgvector's `<=>` operator is cosine DISTANCE (0 = identical), so similarity
 is `1 - (a <=> b)`.
 """
 import hashlib
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -66,12 +67,21 @@ def find_same_post(conn, company: str, text: str, title: str | None) -> str | No
     return row["url"] if row else None
 
 
-def add_source(conn, url: str, company: str, status: str, site=None, title=None, posted_year=None,
+def posted_date(published: str | None) -> date | None:
+    """A page's publish date from its metadata ("2025-03-14"), or None if absent or malformed."""
+    try:
+        return date.fromisoformat(published[:10]) if published else None
+    except ValueError:
+        return None
+
+
+def add_source(conn, url: str, company: str, status: str, site=None, title=None, posted_on: date | None = None,
                text: str | None = None) -> int:
     return conn.execute(
-        """INSERT INTO sources (url, company, site, title, posted_year, status, content_hash)
-           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-        (url, company, site, title, posted_year, status, content_hash(text) if text else None),
+        """INSERT INTO sources (url, company, site, title, posted_year, posted_on, status, content_hash)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+        (url, company, site, title, posted_on.year if posted_on else None, posted_on, status,
+         content_hash(text) if text else None),
     ).fetchone()["id"]
 
 
@@ -290,7 +300,10 @@ QUESTION_VIEW = f"""
               WHERE qt.question_id = q.id
                 AND (t.origin = 'seed' OR {TAG_SOURCES} >= {MIN_TAG_SOURCES})) AS topics,
            (SELECT array_agg(src.url ORDER BY src.id) FROM question_sources s
-              JOIN sources src ON src.id = s.source_id WHERE s.question_id = q.id) AS urls
+              JOIN sources src ON src.id = s.source_id WHERE s.question_id = q.id) AS urls,
+           -- the newest write-up reporting it: "posted Mar 2025"
+           (SELECT to_char(max(src.posted_on), 'YYYY-MM') FROM question_sources s
+              JOIN sources src ON src.id = s.source_id WHERE s.question_id = q.id) AS posted_month
 """
 
 
@@ -356,7 +369,8 @@ def experiences(conn, scope: Scope) -> list[dict]:
     where, params = _filters(scope)
     return conn.execute(
         f"""SELECT q.id, q.role, q.function, q.position, q.track, q.interview_year, q.posted_year, q.outcome,
-                   q.difficulty, q.duration, q.summary, q.rounds, q.tips, s.url, s.site
+                   q.difficulty, q.duration, q.summary, q.rounds, q.tips, s.url, s.site,
+                   to_char(s.posted_on, 'YYYY-MM') AS posted_month
             FROM experiences q JOIN sources s ON s.id = q.source_id
             WHERE {where}
             ORDER BY coalesce(q.interview_year, q.posted_year) DESC NULLS LAST, q.id DESC""",
