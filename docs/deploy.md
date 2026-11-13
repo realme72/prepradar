@@ -158,6 +158,22 @@ by the collect workflow's publish job, which exports fresh data from Neon first.
    running, GitHub queues yours and may show an older waiting one as "cancelled". That's
    fine, since the newest one deploys everything.
 
+## 3e. Adding a post the collector can't read (LeetCode)
+
+LeetCode answers automated readers with a bot check, and we don't get around it. When a
+search finds a LeetCode post, the collect log says "can't be read automatically". To add one:
+
+1. Open the post in your browser, select the whole post (title to the last line) and copy it (Cmd+C).
+2. Run, with the company as it appears on the site and the post's URL:
+   ```
+   gh workflow run collect.yml -f company=lokal \
+     -f paste_url='https://leetcode.com/discuss/post/5156361/interview-experience-of-startup-name-lok-rnxy/' \
+     -f paste_text="$(pbpaste)"
+   ```
+3. `gh run watch`. The post gets the same checks as any page (firsthand only, duplicates
+   merged, tags, the candidate's story), then the site republishes. Only what's extracted
+   is stored, with the URL as the source, not the post's text.
+
 ## 4. Take real money
 
 1. Complete Razorpay KYC and activate live mode.

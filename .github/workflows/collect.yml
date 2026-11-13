@@ -1,6 +1,7 @@
 # Collects one company's interview questions, then republishes the live site.
 # Started by the Worker when a signed-in visitor asks for a company that isn't on the
 # site (POST /api/requests), or by hand: Actions → collect → Run workflow.
+# With paste_url + paste_text it adds one copied post instead (docs/deploy.md 3e).
 #
 # Secrets (Settings → Secrets and variables → Actions): DATABASE_URL (Neon),
 # OPENAI_API_KEY, TAVILY_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
@@ -16,6 +17,12 @@ on:
         description: Search again even if the company has recent data (reads only pages not seen before)
         type: boolean
         default: false
+      paste_url:
+        description: "Add one write-up a person copied (sites that refuse automated reading, like LeetCode): its URL"
+        required: false
+      paste_text:
+        description: "...and the post's text. With these two set, only this post is added; no search runs."
+        required: false
 
 permissions:
   contents: read
@@ -64,7 +71,16 @@ jobs:
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           PYTHONUNBUFFERED: "1"  # each line when it happens, so the log's timestamps show where time goes
           REFRESH: ${{ inputs.refresh && '1' || '' }}
-        run: uv run prepradar run "$COMPANY" --function Engineering ${REFRESH:+--refresh}
+          # like COMPANY, these reach the command only as variables
+          PASTE_URL: ${{ inputs.paste_url }}
+          PASTE_TEXT: ${{ inputs.paste_text }}
+        run: |
+          if [ -n "$PASTE_URL" ]; then
+            printf '%s' "$PASTE_URL" | grep -Eq '^https://[^[:space:]]{1,500}$'
+            printf '%s' "$PASTE_TEXT" | uv run prepradar paste "$COMPANY" "$PASTE_URL"
+          else
+            uv run prepradar run "$COMPANY" --function Engineering ${REFRESH:+--refresh}
+          fi
       # month each write-up was posted, for sources stored before dates were kept (no AI cost)
       - run: uv run prepradar dates --company "$COMPANY"
       - id: count
