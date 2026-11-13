@@ -4,10 +4,9 @@
 import { ApiError, getJson, type Experience, type Guide, type Meta, type Question } from "./api";
 import { currentSession } from "./auth";
 
-type Row = Question & { e?: string }; // e = int8 embedding, base64 (absent on locked outlines)
 type CompanyFile = {
   company: string;
-  questions: Row[];
+  questions: Question[];
   experiences: Experience[];
   guides: (Guide & { function: string; position: string; track: string; since: number | null })[];
 };
@@ -75,37 +74,6 @@ function inScope(row: { function?: string; position: string; track?: string; int
   return !s.since || (year !== null && year >= s.since); // like SQL: an unknown year never passes
 }
 
-// ── search: the same bge-small model as the backend, run in the browser ─────────
-const TRANSFORMERS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1";
-const QUERY_PREFIX = "Represent this sentence for searching relevant passages: ";
-type Extractor = (text: string, opts: object) => Promise<{ data: Float32Array }>;
-let extractor: Promise<Extractor> | null = null;
-
-async function embedQuery(text: string): Promise<Float32Array> {
-  // Loaded on the first search only: the library and model are ~30 MB, cached after.
-  // From a CDN rather than bundled: its WebAssembly runtime is 25 MB, over Cloudflare's
-  // per-file limit, and a pinned CDN copy is cached across sites anyway.
-  extractor ??= import(/* @vite-ignore */ TRANSFORMERS_URL).then(
-    ({ pipeline }) => pipeline("feature-extraction", "Xenova/bge-small-en-v1.5") as Promise<Extractor>,
-  );
-  return (await (await extractor)(QUERY_PREFIX + text, { pooling: "cls", normalize: true })).data;
-}
-
-const vectors = new WeakMap<Row, Int8Array>();
-function vectorOf(q: Row): Int8Array {
-  let v = vectors.get(q);
-  if (!v) {
-    v = Int8Array.from(atob(q.e!), (c) => (c.charCodeAt(0) << 24) >> 24); // bytes -> signed int8
-    vectors.set(q, v);
-  }
-  return v;
-}
-
-function strip(q: Row): Question {
-  const { e: _, ...rest } = q;
-  return rest;
-}
-
 export async function resolveStatic(url: string): Promise<unknown> {
   const u = new URL(url, location.origin);
   const [, kind, name, what] = u.pathname.split("/").filter(Boolean).map(decodeURIComponent);
@@ -137,7 +105,7 @@ export async function resolveStatic(url: string): Promise<unknown> {
       return [...counts.values()];
     }
     case "questions":
-      return c.questions.filter((q) => inScope(q, scope, related)).map(strip);
+      return c.questions.filter((q) => inScope(q, scope, related));
     case "experiences":
       return c.experiences.filter((e) => inScope(e as Parameters<typeof inScope>[0], scope, related));
     case "guide": {
@@ -145,21 +113,6 @@ export async function resolveStatic(url: string): Promise<unknown> {
                                      && g.track === scope.track && (g.since ?? null) === scope.since);
       if (!g) throw new ApiError(404, "No guide for these filters yet.");
       return { markdown: g.markdown, locked: g.locked };
-    }
-    case "search": {
-      const query = (p.get("q") ?? "").trim();
-      const k = Number(p.get("k") ?? 10);
-      const qv = await embedQuery(query);
-      return c.questions
-        .filter((q) => q.e && q.specific && inScope(q, scope, related)) // locked outlines have no embedding
-        .map((q) => {
-          const v = vectorOf(q);
-          let dot = 0;
-          for (let i = 0; i < v.length; i++) dot += v[i] * qv[i];
-          return { ...strip(q), score: Math.round((dot / 127) * 1000) / 1000 };
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, k);
     }
   }
   throw new ApiError(404, "Not found");

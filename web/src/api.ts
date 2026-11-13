@@ -65,7 +65,6 @@ export type Question = {
   times_reported: number;
   topics: string[] | null;
   urls: string[] | null;
-  score?: number; // only on search results
   locked?: boolean; // live site, not subscribed: an outline only (no text or sources)
 };
 

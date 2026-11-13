@@ -38,13 +38,12 @@ def test_a_locked_story_carries_no_content():
 def q(id, cat="DSA", reported=1, specific=True, fn="Engineering"):
     return {"id": id, "specific": specific, "category": cat, "function": fn, "times_reported": reported,
             "interview_year": 2025, "posted_year": None, "posted_month": None, "round": "Technical", "position": "SDE 2",
-            "track": "Backend", "topics": ["Graphs"], "text": f"secret question {id}", "urls": ["https://x"],
-            "e": "AAAA"}
+            "track": "Backend", "topics": ["Graphs"], "text": f"secret question {id}", "urls": ["https://x"]}
 
 
-def test_a_locked_question_carries_no_text_sources_or_embedding():
+def test_a_locked_question_carries_no_text_or_sources():
     o = question_outline(q(9))
-    assert "secret" not in str(o) and "https://x" not in str(o) and "e" not in o
+    assert "secret" not in str(o) and "https://x" not in str(o)
     assert o["locked"] is True and o["category"] == "DSA"
 
 

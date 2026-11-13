@@ -8,9 +8,7 @@ import { GuideTab } from "./components/GuideTab";
 import { LockedQuestionCard, QuestionCard } from "./components/QuestionCard";
 import { RequestPanel } from "./components/RequestPanel";
 import { RunPanel } from "./components/RunPanel";
-import { SearchBox } from "./components/SearchBox";
 import { useApi } from "./hooks/useApi";
-import { useDebounce } from "./hooks/useDebounce";
 import { reloadIndex } from "./static";
 
 type View = "questions" | "experiences" | "guide";
@@ -37,17 +35,11 @@ export default function App() {
   const [topic, setTopic] = useState<string | null>(null); // subtopic within the category
   const [showVague, setShowVague] = useState(false);
   const [view, setView] = useState<View>("questions");
-  const [query, setQuery] = useState("");
   // Bumped after a run so every fetch below reloads with the new data.
   const [runs, setRuns] = useState(0);
   // Signing in, out, or subscribing changes what the data layer returns, too.
   const account = useAccount();
   const version = runs + account.version;
-
-  // `query` changes on every keystroke (the input needs that); the search waits
-  // until typing pauses.
-  const settledQuery = useDebounce(query.trim(), 300);
-  const searching = settledQuery.length >= 2;
 
   const meta = useApi<Meta>(apiUrl("/meta"));
   const companies = useApi<Company[]>(apiUrl("/companies"), version);
@@ -61,9 +53,6 @@ export default function App() {
   const questions = useApi<Question[]>(
     company ? apiUrl(`/companies/${company}/questions`, params) : null,
     version,
-  );
-  const results = useApi<Question[]>(
-    company && searching ? apiUrl(`/companies/${company}/search`, { ...params, q: settledQuery, k: 15 }) : null,
   );
   const guideUrl = company ? apiUrl(`/companies/${company}/guide`, params) : null;
   const storiesUrl = company ? apiUrl(`/companies/${company}/experiences`, params) : null;
@@ -102,7 +91,6 @@ export default function App() {
     [inCategory, topic],
   );
   const lockedCount = visible.filter((q) => q.locked).length;
-  const allLocked = specific.filter((q) => q.locked).length;
 
   const vagueShown = useMemo(
     () => vague.filter((q) => category === null || q.category === category),
@@ -121,7 +109,6 @@ export default function App() {
     setCompany(c);
     setRequested(null);
     pickCategory(null);
-    setQuery("");
   }
 
   // The live site asks the Worker to collect it; local dev runs the pipeline right here.
@@ -221,20 +208,6 @@ export default function App() {
               No {scope.position || scope.function} questions for {company} yet.
               {!STATIC && ` Fetch them with “Refresh ${company}” above.`}
             </p>
-          ) : (
-            <SearchBox value={query} onChange={setQuery} />
-          )}
-
-          {empty ? null : searching ? (
-            <section className="list">
-              {results.loading && <p className="muted">Searching…</p>}
-              {results.error && <p className="error">{results.error}</p>}
-              {allLocked > 0 && !account.me?.access && (
-                <p className="list-note muted">Searching the questions you can see; subscribers search all {specific.length}.</p>
-              )}
-              {results.data?.length === 0 && <p className="empty">No close matches.</p>}
-              {results.data?.map((q) => <QuestionCard key={q.id} question={q} />)}
-            </section>
           ) : (
             questions.data && (
               <>

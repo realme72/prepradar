@@ -129,6 +129,35 @@ Put the public key in `wrangler.jsonc` (`VAPID_PUBLIC_KEY`), then:
 A cron trigger (every 5 minutes) checks the companies people are waiting for and sends
 the notifications. Making a new pair later cuts off every existing subscription.
 
+## 3d. Shipping a code change (site, Worker or collector)
+
+Don't run `wrangler deploy` from the laptop: it uploads the laptop's `web/public/data`,
+an old export, and rolls the live questions back. The live site is only ever deployed
+by the collect workflow's publish job, which exports fresh data from Neon first.
+
+1. **Check it locally:**
+   ```
+   npm --prefix web run build          # the site compiles
+   uv run pytest -q                    # collector tests (needs the local Postgres)
+   npm --prefix worker test            # Worker tests
+   ```
+2. **Commit and push to `main`:**
+   ```
+   gitleaks git --staged               # no secrets in what's about to be committed
+   git commit -m "..." && git push
+   ```
+3. **Republish:** run the collect workflow for a company that's already on the site.
+   Its data is recent, so collecting takes a minute and nothing is spent on AI. The publish job then
+   builds and deploys the code you just pushed.
+   ```
+   gh workflow run collect.yml -f company=razorpay
+   gh run watch                        # pick the run; about 4–6 minutes in all
+   ```
+   Or on GitHub: Actions → collect → Run workflow → type `razorpay` → Run (leave "refresh" off).
+4. **Check the live site** with a hard refresh (Cmd+Shift+R). If a publish was already
+   running, GitHub queues yours and may show an older waiting one as "cancelled". That's
+   fine, since the newest one deploys everything.
+
 ## 4. Take real money
 
 1. Complete Razorpay KYC and activate live mode.

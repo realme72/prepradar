@@ -10,12 +10,9 @@ Outlines carry category, topics, outcome and the like, never text or sources, so
 blurred cards on the site can't be read with "inspect element". Signing in alone
 unlocks nothing: it's needed to subscribe (and for quick searches).
 """
-import base64
 import json
 from datetime import date
 from pathlib import Path
-
-import numpy as np
 
 from prepradar.roles import CATEGORIES, FUNCTIONS, RELATED_TRACKS, TRACKS, UNKNOWN
 from prepradar.store import db
@@ -28,19 +25,9 @@ OPEN_QUESTIONS = 2        # per company, readable without signing in
 OPEN_STORIES = 2          # newest, per company, readable without signing in
 
 
-def _quantise(vec) -> str:
-    """384 floats -> 384 int8 as base64 (512 chars instead of ~2.5k). Ranking by dot
-    product barely changes: the vectors are normalised, so x*127 keeps 2-3 digits."""
-    vec = np.asarray(vec.to_numpy() if hasattr(vec, "to_numpy") else vec, dtype=np.float32)
-    return base64.b64encode(np.clip(np.round(vec * 127), -127, 127).astype(np.int8).tobytes()).decode()
-
-
 def _company_questions(conn, company: str) -> list[dict]:
-    rows = conn.execute(f"{db.QUESTION_VIEW}, q.embedding FROM questions q WHERE q.company = %s ORDER BY q.id",
+    return conn.execute(f"{db.QUESTION_VIEW} FROM questions q WHERE q.company = %s ORDER BY q.id",
                         (company,)).fetchall()
-    for r in rows:
-        r["e"] = _quantise(r.pop("embedding"))
-    return rows
 
 
 def _company_stories(conn, company: str) -> list[dict]:
@@ -65,7 +52,7 @@ def open_question_ids(questions: list[dict]) -> set[int]:
 
 def question_outline(q: dict) -> dict:
     """A locked question on the public site: where it belongs and how often it came up,
-    but not its text, sources or embedding."""
+    but not its text or sources."""
     return {k: q[k] for k in ("id", "specific", "category", "round", "function", "position", "track",
                               "interview_year", "posted_year", "posted_month", "times_reported", "topics")} | {"locked": True}
 

@@ -57,7 +57,7 @@ Frontend / Behavioral), filtered by year and round, every one linked to its sour
     uv run uvicorn prepradar.api:app --port 8010     # API
     cd web && npm install && npm run dev             # http://localhost:5173
 
-Browse questions by category, search them by meaning, read the prep guide (click a
+Browse questions by category, read the prep guide (click a
 `Q#` to jump to the question, an `S#` to open the write-up), and run the pipeline
 for a new company with its progress streamed live.
 

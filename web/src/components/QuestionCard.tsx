@@ -24,7 +24,6 @@ export function QuestionCard({ question: q }: Props) {
         {q.position !== "Unknown" && <span className="muted">{q.position}</span>}
         {q.round !== "Unknown" && <span className="muted">{q.round}</span>}
         {year && <span className="muted">{year}</span>}
-        {q.score !== undefined && <span className="muted">match {q.score.toFixed(2)}</span>}
       </div>
       <div className="card-sources">
         {(q.urls ?? []).map((u) => (
