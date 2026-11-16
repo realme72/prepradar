@@ -218,7 +218,7 @@ test keys, so nothing run on the laptop can charge a real card.
    pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_KEY_ID       # then the key id
    ```
 4. **Plan:** Subscriptions → Plans → Create Plan: "PrepRadar Pro", ₹129, monthly (the test plan was ₹49)
-   plan. Copy its id (`plan_…`):
+   Copy its id (`plan_…`):
    ```
    pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_PLAN_ID
    ```
