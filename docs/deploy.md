@@ -202,10 +202,43 @@ tier allows only a few requests a minute. A collection takes longer there.
 
 ## 4. Take real money
 
-1. Complete Razorpay KYC and activate live mode.
-2. Create the ₹49 plan again in live mode; plan ids differ between modes.
-3. Replace the four Razorpay secrets with live values.
-4. Add pages for terms, a privacy policy and refunds/cancellation. Razorpay asks for them during activation, and subscriptions must explain how to cancel. The site's **Cancel plan** button stops renewal, and access lasts until the paid month ends.
+Live keys go only into the Worker's secrets. `.env` and `worker/.dev.vars` keep the
+test keys, so nothing run on the laptop can charge a real card.
+
+1. Finish KYC and the website review (it needs the terms, privacy, refund and contact
+   pages). The dashboard's **Test Mode / Live Mode** switch works once Razorpay activates
+   the account. Subscriptions may need activating separately: if **Subscriptions** asks
+   for it in Live Mode, request it there.
+2. **Switch the dashboard to Live Mode** (top bar). Everything below is per mode.
+3. **API keys:** Account & Settings → API Keys → Generate Key. Copy the **Key Secret**
+   (shown once; Regenerate if it's lost) and save it, then the **Key Id** (`rzp_live_…`):
+   ```
+   cd worker
+   pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_KEY_SECRET   # secret copied
+   pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_KEY_ID       # then the key id
+   ```
+4. **Plan:** Subscriptions → Plans → Create Plan: ₹49, monthly, the same name as the test
+   plan. Copy its id (`plan_…`):
+   ```
+   pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_PLAN_ID
+   ```
+5. **Webhook:** make a new secret and copy it: `openssl rand -hex 32 | pbcopy`. Then
+   Account & Settings → Webhooks → Add New Webhook:
+   - URL: `https://prepradar.prepradar-worker.workers.dev/api/razorpay/webhook`
+   - Secret: paste it
+   - Alert email: yours
+   - Events: tick every `subscription.*` event
+   Save, then store the same secret (it's still on the clipboard):
+   ```
+   pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_WEBHOOK_SECRET
+   pbcopy < /dev/null
+   ```
+6. Secrets take effect at once, no deploy needed. Subscribe once yourself with a real card
+   or UPI, check the dashboard shows the subscription, then cancel it from the site
+   (**Cancel plan**) and refund the payment from the dashboard if you like.
+
+Subscriptions made in test mode (your own PRO, for one) stay as they are until their
+paid month ends, then end, because the live keys can't find them.
 
 ## Safety notes
 

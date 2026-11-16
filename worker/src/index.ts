@@ -111,7 +111,15 @@ async function save(env: Env, user: string, s: Subscription, cancelAtEnd?: boole
 async function current(env: Env, user: string): Promise<UserRecord | null> {
   const r = await record(env, user);
   if (r && r.status === "active" && r.current_end && r.current_end < now()) {
-    return save(env, user, await rzp(env).subscription(r.subscription_id));
+    try {
+      return await save(env, user, await rzp(env).subscription(r.subscription_id));
+    } catch (e) {
+      // made with the other mode's keys (a test subscription after going live): it has ended
+      if (!(e instanceof HttpError && e.status === 404)) throw e;
+      const ended: UserRecord = { ...r, status: "expired" };
+      await env.USERS.put(userKey(user), JSON.stringify(ended));
+      return ended;
+    }
   }
   return r;
 }
