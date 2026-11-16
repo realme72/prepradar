@@ -4,7 +4,7 @@
 //   GET  /api/config                 Google client id, Razorpay key id, the plan's price
 //   POST /api/session {credential}   Google ID token -> our session token
 //   GET  /api/me                     the signed-in user's subscription and access
-//   POST /api/subscribe              start a ₹49/month Razorpay subscription
+//   POST /api/subscribe              start a monthly Razorpay subscription (price: the plan's)
 //   POST /api/subscription/verify    confirm checkout, record the subscription
 //   POST /api/subscription/cancel    stop renewing (access lasts to the period's end)
 //   POST /api/razorpay/webhook       renewals, failures, cancellations from Razorpay

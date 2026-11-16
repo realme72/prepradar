@@ -5,7 +5,7 @@ The live site is one Cloudflare Worker:
 - **Static files:** the React app plus `data/*.json`, exported from your database. Visitors who aren't subscribed (signed in or not) see each company's 2 most reported questions and its 2 newest stories. Everything else, including prep guides, is subscribers only. Search runs in the browser.
 - **`/api` routes:**
   - **Google sign-in:** the Worker checks Google's signed token and issues its own session.
-  - **₹49/month Razorpay subscriptions:** checkout, verify, cancel, and webhooks for renewals and failures.
+  - **Monthly Razorpay subscriptions (₹129 live; the site shows the plan's price):** checkout, verify, cancel, and webhooks for renewals and failures.
   - **`/api/content`:** sends a company's locked content, from KV, to signed-in subscribers.
   - **`/api/requests`:** a signed-in visitor asks for a company that isn't on the site. The Worker starts the `collect` GitHub Actions workflow, which collects it into the Neon database, then exports, rebuilds and redeploys the site. That takes about 5–12 minutes; the page waits and opens the company when it's live.
 
@@ -217,7 +217,7 @@ test keys, so nothing run on the laptop can charge a real card.
    pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_KEY_SECRET   # secret copied
    pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_KEY_ID       # then the key id
    ```
-4. **Plan:** Subscriptions → Plans → Create Plan: ₹49, monthly, the same name as the test
+4. **Plan:** Subscriptions → Plans → Create Plan: "PrepRadar Pro", ₹129, monthly (the test plan was ₹49)
    plan. Copy its id (`plan_…`):
    ```
    pbpaste | tr -d '[:space:]' | npx wrangler secret put RAZORPAY_PLAN_ID
