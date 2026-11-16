@@ -41,10 +41,10 @@ class Read:
     experiences: list[ExperienceDraft] = field(default_factory=list)
 
 
-def store_questions(conn, qs, source_id: int) -> tuple[int, list[str], dict[str, str]]:
+def store_questions(conn, qs, source_id: int, judge=None) -> tuple[int, list[str], dict[str, str]]:
     """Embed, dedupe and tag extracted questions. Returns (duplicates, new tags, tags
     mapped onto existing ones)."""
-    judge = prejudge_tags(conn, qs)
+    judge = judge or prejudge_tags(conn, qs)
     vecs = embed([q.text for q in qs]) if qs else []
     dups, new_tags, mapped = 0, [], {}
     for q, vec in zip(qs, vecs):
@@ -99,6 +99,7 @@ def read_page(c: Candidate, company: str, vocabulary: dict[str, str]) -> Read:
 def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> IngestStats:
     stats = IngestStats()
     seen = db.seen_urls(conn)
+    conn.commit()  # end the read: the hosted database closes connections left idle in a transaction
     todo = []
     for c in candidates:
         if c.url in seen:
@@ -114,6 +115,7 @@ def ingest(conn, company: str, candidates: list[Candidate], limit: int) -> Inges
             n = min(config.INGEST_WORKERS, limit - stats.pages)
             wave, todo = todo[:n], todo[n:]
             vocabulary = db.vocabulary(conn)
+            conn.commit()  # same: a wave of reads takes minutes on a rate-limited model
             reads = list(pool.map(lambda c: read_page(c, company, vocabulary), wave))
             for c, r in zip(wave, reads):
                 save(conn, company, c, r, stats)
@@ -139,6 +141,9 @@ def save(conn, company: str, c: Candidate, r: Read, stats: IngestStats) -> None:
         conn.commit()
         print(f"  same post as {same}, skipped  {c.url}")
         return
+    # The tag judge's model calls happen before any write, outside a transaction.
+    judge = prejudge_tags(conn, r.questions) if r.firsthand else None
+    conn.commit()
     status = "extracted" if r.firsthand else "not_firsthand"
     source_id = db.add_source(conn, c.url, company, status, page.site, page.title, posted_on, page.text)
     if not r.firsthand:
@@ -149,7 +154,7 @@ def save(conn, company: str, c: Candidate, r: Read, stats: IngestStats) -> None:
     stats.pages += 1
 
     qs, exps = r.questions, r.experiences
-    dups, new_tags, mapped = store_questions(conn, qs, source_id)
+    dups, new_tags, mapped = store_questions(conn, qs, source_id, judge)
     db.add_experiences(conn, source_id, company, posted_on and posted_on.year, exps)
     conn.commit()
     stats.experiences += len(exps)

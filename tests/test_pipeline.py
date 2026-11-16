@@ -19,7 +19,10 @@ def test_pages_are_read_in_waves_and_never_past_the_limit(monkeypatch):
     monkeypatch.setattr(pipeline, "save", save)
 
     cands = [Candidate(f"u{i}") for i in range(10)] + [Candidate("u2")]
-    stats = pipeline.ingest(None, "acme", cands, limit=3)
+    class Conn:  # ingest only commits on it here (reads are stubbed)
+        def commit(self):
+            pass
+    stats = pipeline.ingest(Conn(), "acme", cands, limit=3)
     assert stats.pages == 3
     # u0 cached, u2 listed twice; waves of 3, then 2 (the limit), then 1
     assert read == ["u1", "u2", "u3", "u4", "u5", "u6"]
