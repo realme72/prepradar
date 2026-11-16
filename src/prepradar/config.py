@@ -12,7 +12,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER") or ("openai" if os.getenv("OPENAI_API_K
                                              else "gemini")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _GEMINI = LLM_PROVIDER == "gemini"
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gemini-2.5-flash" if _GEMINI else "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gemini-3.5-flash" if _GEMINI else "gpt-4o-mini")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost:5432/prepradar")
 MAX_PAGE_CHARS = 15_000  # one question-extraction call reads this much of a page
 MAX_CHUNKS = 4           # longer pages are read in up to this many chunks (60k chars)
@@ -31,7 +31,7 @@ DEDUPE_JUDGE = float(os.getenv("DEDUPE_JUDGE", "0.80"))
 # Model for judgement calls that run rarely (duplicate judge, recategorise), so they
 # can afford more care than extraction. For the duplicate judge, gpt-4o-mini flipped between merging "kth largest" with
 # "2nd largest" and missing "debounce function" = "what is debounce, implement it".
-JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini-2.5-flash" if _GEMINI else "gpt-5.4-mini")
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini-3.5-flash" if _GEMINI else "gpt-5.4-mini")
 # With no reasoning the classifier flipped on borderline pages (an AI-written summary
 # read as candidate reviews 2 runs in 5); "low" was stable, "medium" no better.
 JUDGE_REASONING = {"effort": os.getenv("JUDGE_REASONING", "low")}

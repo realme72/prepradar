@@ -325,7 +325,7 @@ function llmFor(env: Env): Llm | null {
   }
   if (env.GEMINI_API_KEY) {
     return { url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", key: env.GEMINI_API_KEY,
-             model: env.QUICK_MODEL || "gemini-2.5-flash-lite" };
+             model: env.QUICK_MODEL || "gemini-3.5-flash-lite" };
   }
   return null;
 }

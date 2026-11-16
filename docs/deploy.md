@@ -195,8 +195,8 @@ OpenAI wins when both are, so remove the OpenAI key to switch.
 3. On the laptop: in `.env`, add `GEMINI_API_KEY=...` and delete the `OPENAI_API_KEY` and
    `OPENAI_MODEL` lines.
 
-Models: `gemini-2.5-flash` for reading pages and judging, `gemini-2.5-flash-lite` for the
-quick search (override with `OPENAI_MODEL`, `JUDGE_MODEL`, and the Worker's `QUICK_MODEL`).
+Models: `gemini-3.5-flash` for reading pages and judging, `gemini-3.5-flash-lite` for the
+quick search (2.5 is closed to new keys; 3.8-flash was overloaded on 2026-11-16) (override with `OPENAI_MODEL`, `JUDGE_MODEL`, and the Worker's `QUICK_MODEL`).
 On Gemini, 3 pages are read at once instead of 6 and rate-limit errors are retried, because the free
 tier allows only a few requests a minute. A collection takes longer there.
 
