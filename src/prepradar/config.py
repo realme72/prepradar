@@ -35,8 +35,12 @@ JUDGE_MODEL = os.getenv("JUDGE_MODEL", "gemini-3.5-flash" if _GEMINI else "gpt-5
 # With no reasoning the classifier flipped on borderline pages (an AI-written summary
 # read as candidate reviews 2 runs in 5); "low" was stable, "medium" no better.
 JUDGE_REASONING = {"effort": os.getenv("JUDGE_REASONING", "low")}
-# Gemini's free tier allows only a few requests a minute, so fewer at once and more retries.
-LLM_RETRIES = int(os.getenv("LLM_RETRIES", "8" if _GEMINI else "2"))
+# Gemini's free tier allows only a few requests a minute, so fewer pages at once and a
+# retry for brief overloads (503); rate limits (429) are handled in extractor.parse.
+LLM_RETRIES = int(os.getenv("LLM_RETRIES", "3" if _GEMINI else "2"))
+# Requests per minute across all threads; 0 = no pacing. A burst of parallel calls was
+# rejected (429) by Gemini's free tier even with retries. Raise it on a paid key.
+LLM_RPM = float(os.getenv("LLM_RPM", "8" if _GEMINI else "0"))
 # Short tag names embed poorly ("Java" vs "JavaScript" 0.83, "Prod Debugging" vs
 # "Production Troubleshooting" 0.73), so similarity alone can't decide tag merges:
 # >= AUTO: merge; between CANDIDATE and AUTO: ask the LLM; below CANDIDATE: new tag.

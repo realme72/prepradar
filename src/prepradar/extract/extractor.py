@@ -2,9 +2,10 @@
 import os
 import re
 import threading
+import time
 from types import SimpleNamespace
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from pydantic import BaseModel, Field
 
 from prepradar import config
@@ -54,6 +55,22 @@ def log_usage(model: str, purpose: str, u) -> None:
             _usage_conn = None
 
 
+_pace_lock = threading.Lock()
+_next_slot = 0.0
+
+
+def pace() -> None:
+    """Space model calls evenly, across threads, to stay under config.LLM_RPM."""
+    global _next_slot
+    if config.LLM_RPM <= 0:
+        return
+    with _pace_lock:
+        now = time.monotonic()
+        slot = max(now, _next_slot)
+        _next_slot = slot + 60 / config.LLM_RPM
+    time.sleep(slot - now)
+
+
 def parse(purpose: str, *, model: str, instructions: str, input: str, text_format, reasoning=None,
           temperature=None):
     """One structured-output call: the answer as `text_format`, in `.output_parsed`.
@@ -63,10 +80,20 @@ def parse(purpose: str, *, model: str, instructions: str, input: str, text_forma
     extra = {"reasoning_effort": reasoning["effort"]} if reasoning else {}
     if temperature is not None:
         extra["temperature"] = temperature
-    resp = client().chat.completions.parse(
-        model=model, response_format=text_format, **extra,
-        messages=[{"role": "system", "content": instructions}, {"role": "user", "content": input}],
-    )
+    for attempt in range(4):
+        pace()
+        try:
+            resp = client().chat.completions.parse(
+                model=model, response_format=text_format, **extra,
+                messages=[{"role": "system", "content": instructions}, {"role": "user", "content": input}],
+            )
+            break
+        except RateLimitError:
+            # the client's own retries wait seconds; per-minute limits need a full minute
+            if attempt == 3:
+                raise
+            print(f"  rate limited ({purpose}), waiting a minute")
+            time.sleep(60)
     if resp.usage is not None:
         log_usage(model, purpose, resp.usage)
     parsed = resp.choices[0].message.parsed
