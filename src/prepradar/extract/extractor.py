@@ -88,9 +88,10 @@ def parse(purpose: str, *, model: str, instructions: str, input: str, text_forma
                 messages=[{"role": "system", "content": instructions}, {"role": "user", "content": input}],
             )
             break
-        except RateLimitError:
-            # the client's own retries wait seconds; per-minute limits need a full minute
-            if attempt == 3:
+        except RateLimitError as e:
+            # the client's own retries wait seconds; per-minute limits need a full minute,
+            # and a used-up daily quota (Gemini free tier: 20 a day) won't come back today
+            if attempt == 3 or "per day" in str(e.body or e):
                 raise
             print(f"  rate limited ({purpose}), waiting a minute")
             time.sleep(60)
