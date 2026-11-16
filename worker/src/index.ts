@@ -30,7 +30,7 @@
 import { signSession, validCheckoutSignature, validWebhookSignature, verifySession } from "./crypto.ts";
 import { verifyGoogleIdToken } from "./google.ts";
 import { endpointId, sendPush, validEndpoint, type PushKeys } from "./push.ts";
-import { extractQuestions, searchPages, type QuickResult } from "./quick.ts";
+import { extractQuestions, searchPages, type Llm, type QuickResult } from "./quick.ts";
 import { HttpError, Razorpay, type Plan, type Subscription } from "./razorpay.ts";
 
 export type Env = {
@@ -42,7 +42,8 @@ export type Env = {
   SESSION_SECRET: string;
   GITHUB_TOKEN?: string; // fine-grained token: Actions read & write on GITHUB_REPO only
   GITHUB_REPO?: string;  // "owner/name"
-  OPENAI_API_KEY?: string; // quick live pass only
+  OPENAI_API_KEY?: string; // quick live pass only; GEMINI_API_KEY is used when it isn't set
+  GEMINI_API_KEY?: string;
   TAVILY_API_KEY?: string;
   QUICK_MODEL?: string;
   VAPID_PUBLIC_KEY?: string;  // browser notifications (see push.ts)
@@ -316,6 +317,19 @@ async function quickCached(req: Request, env: Env) {
 //   {"type":"sources","sources":[…]}  {"type":"question",…}  {"type":"collect",…}
 //   {"type":"done","count":n}  or  {"type":"error","detail":…}
 // A company already on the site, or with a recent quick result, gets plain JSON instead.
+// OpenAI when its key is set, else Gemini through its OpenAI-compatible endpoint.
+function llmFor(env: Env): Llm | null {
+  if (env.OPENAI_API_KEY) {
+    return { url: "https://api.openai.com/v1/chat/completions", key: env.OPENAI_API_KEY,
+             model: env.QUICK_MODEL || "gpt-4o-mini" };
+  }
+  if (env.GEMINI_API_KEY) {
+    return { url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", key: env.GEMINI_API_KEY,
+             model: env.QUICK_MODEL || "gemini-2.5-flash-lite" };
+  }
+  return null;
+}
+
 async function quick(req: Request, env: Env, ctx: ExecutionContext) {
   const user = await signedInUser(req, env);
   const name = companyName((await body<{ company?: unknown }>(req)).company);
@@ -323,9 +337,9 @@ async function quick(req: Request, env: Env, ctx: ExecutionContext) {
   if (await onSite(env, name)) return json({ company: name, status: "ready" });
   const cached = await env.REQUESTS.get<QuickResult>(quickKey(name), "json");
   if (cached) return json({ company: name, status: "cached", result: cached });
-  if (!env.OPENAI_API_KEY || !env.TAVILY_API_KEY) throw new HttpError(503, "Quick search opens soon");
+  const llm = llmFor(env), tavily = env.TAVILY_API_KEY;
+  if (!llm || !tavily) throw new HttpError(503, "Quick search opens soon");
   const used = await underCap(env, "quick", user, QUICK_LIMIT, "run a quick search");
-  const openai = env.OPENAI_API_KEY, tavily = env.TAVILY_API_KEY;
 
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -346,7 +360,7 @@ async function quick(req: Request, env: Env, ctx: ExecutionContext) {
       result.sources = pages.map(({ url, title, site }) => ({ url, title, site }));
       await send({ type: "sources", sources: result.sources });
       if (pages.length) {
-        await extractQuestions(name, pages, openai, env.QUICK_MODEL || "gpt-4o-mini", async (q) => {
+        await extractQuestions(name, pages, llm, async (q) => {
           result.questions.push(q);
           await send({ type: "question", ...q });
         });

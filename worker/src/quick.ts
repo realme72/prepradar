@@ -120,7 +120,10 @@ export function parsePosted(line: string, now = new Date()): string | null {
 
 // Reads every page at once (one streamed call each) and calls onQuestion for each new
 // question the moment any of them writes one.
-export async function extractQuestions(company: string, pages: Page[], key: string, model: string,
+// Any OpenAI-compatible chat endpoint: OpenAI itself, or Gemini's (see llmFor in index.ts).
+export type Llm = { url: string; key: string; model: string };
+
+export async function extractQuestions(company: string, pages: Page[], llm: Llm,
                                        onQuestion: (q: QuickQuestion) => Promise<void>): Promise<void> {
   const seen = new Set<string>();
   const found = async (q: QuickQuestion | null) => {
@@ -133,7 +136,7 @@ export async function extractQuestions(company: string, pages: Page[], key: stri
   // one failed page shouldn't lose the others' questions
   const results = await Promise.allSettled(pages.map((page, i) => {
     let posted: string | undefined; // the page's first line, when it has a date
-    return streamLines(prompt(company, page), key, model, async (line) => {
+    return streamLines(prompt(company, page), llm, async (line) => {
       posted = parsePosted(line) ?? posted;
       await found(parseLine(line, i, posted));
     });
@@ -142,9 +145,9 @@ export async function extractQuestions(company: string, pages: Page[], key: stri
 }
 
 // One streamed chat completion, delivered a line of text at a time.
-async function streamLines({ system, user }: { system: string; user: string }, key: string, model: string,
+async function streamLines({ system, user }: { system: string; user: string }, { url, key, model }: Llm,
                            onLine: (line: string) => Promise<void>): Promise<void> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model, stream: true, temperature: 0, max_tokens: 1500,

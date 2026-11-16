@@ -98,7 +98,7 @@ Open the local site at **http://localhost:8787**, not 127.0.0.1. Google only acc
 
 1. **GitHub repository secrets.** Under Settings → Secrets and variables → Actions → New repository secret, add:
    - `DATABASE_URL` (Neon);
-   - `OPENAI_API_KEY`;
+   - `OPENAI_API_KEY`, or `GEMINI_API_KEY` to use Google's Gemini instead (see 3f);
    - `TAVILY_API_KEY`;
    - `CLOUDFLARE_ACCOUNT_ID` (shown on the Cloudflare dashboard's Workers page);
    - `CLOUDFLARE_API_TOKEN`: on Cloudflare, go to My Profile → API Tokens → Create Token and use the "Edit Cloudflare Workers" template. It lets the workflow deploy and write KV.
@@ -173,6 +173,32 @@ search finds a LeetCode post, the collect log says "can't be read automatically"
 3. `gh run watch`. The post gets the same checks as any page (firsthand only, duplicates
    merged, tags, the candidate's story), then the site republishes. Only what's extracted
    is stored, with the URL as the source, not the post's text.
+
+## 3f. Using Gemini instead of OpenAI
+
+The collector and the quick search work with either provider; Gemini goes through its
+OpenAI-compatible endpoint, so the code is the same. Whichever key is set is used, and
+OpenAI wins when both are, so remove the OpenAI key to switch.
+
+1. Get a key at aistudio.google.com → Get API key. Check it (key copied):
+   ```
+   curl -s -o /dev/null -w "%{http_code}\n" "https://generativelanguage.googleapis.com/v1beta/models?key=$(pbpaste | tr -d '[:space:]')"
+   ```
+   `200` means it works.
+2. Save it, and remove the OpenAI key, for the collector (GitHub) and the quick search (Worker):
+   ```
+   pbpaste | tr -d '[:space:]' | gh secret set GEMINI_API_KEY
+   gh secret delete OPENAI_API_KEY
+   cd worker && pbpaste | tr -d '[:space:]' | npx wrangler secret put GEMINI_API_KEY
+   npx wrangler secret delete OPENAI_API_KEY
+   ```
+3. On the laptop: in `.env`, add `GEMINI_API_KEY=...` and delete the `OPENAI_API_KEY` and
+   `OPENAI_MODEL` lines.
+
+Models: `gemini-2.5-flash` for reading pages and judging, `gemini-2.5-flash-lite` for the
+quick search (override with `OPENAI_MODEL`, `JUDGE_MODEL`, and the Worker's `QUICK_MODEL`).
+On Gemini, 3 pages are read at once instead of 6 and rate-limit errors are retried, because the free
+tier allows only a few requests a minute. A collection takes longer there.
 
 ## 4. Take real money
 

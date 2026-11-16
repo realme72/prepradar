@@ -1,6 +1,8 @@
-"""Page text -> list[ExtractedQuestion] via OpenAI structured output."""
+"""Page text -> list[ExtractedQuestion] via structured output (OpenAI or Gemini, see config.LLM_PROVIDER)."""
+import os
 import re
 import threading
+from types import SimpleNamespace
 
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -18,7 +20,11 @@ _client: OpenAI | None = None
 def client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI()  # reads OPENAI_API_KEY from env
+        if config.LLM_PROVIDER == "gemini":
+            _client = OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=config.GEMINI_BASE_URL,
+                             max_retries=config.LLM_RETRIES)
+        else:
+            _client = OpenAI(max_retries=config.LLM_RETRIES)  # reads OPENAI_API_KEY from env
     return _client
 
 
@@ -39,8 +45,8 @@ def log_usage(model: str, purpose: str, u) -> None:
             _usage_conn.execute(
                 """INSERT INTO llm_usage (model, purpose, input_tokens, cached_tokens, output_tokens,
                                           reasoning_tokens) VALUES (%s, %s, %s, %s, %s, %s)""",
-                (model, purpose, u.input_tokens, getattr(u.input_tokens_details, "cached_tokens", 0) or 0,
-                 u.output_tokens, getattr(u.output_tokens_details, "reasoning_tokens", 0) or 0),
+                (model, purpose, u.prompt_tokens, getattr(u.prompt_tokens_details, "cached_tokens", 0) or 0,
+                 u.completion_tokens, getattr(u.completion_tokens_details, "reasoning_tokens", 0) or 0),
             )
             _usage_conn.commit()
         except Exception as e:  # e.g. table not created yet: run `prepradar init`
@@ -48,13 +54,25 @@ def log_usage(model: str, purpose: str, u) -> None:
             _usage_conn = None
 
 
-def parse(purpose: str, **kwargs):
-    """client().responses.parse, plus a row in llm_usage with the tokens it used
-    (`prepradar usage` sums them). Logging never fails the call."""
-    resp = client().responses.parse(**kwargs)
+def parse(purpose: str, *, model: str, instructions: str, input: str, text_format, reasoning=None,
+          temperature=None):
+    """One structured-output call: the answer as `text_format`, in `.output_parsed`.
+    Uses the chat completions API, which Gemini's OpenAI-compatible endpoint also
+    speaks (the newer Responses API is OpenAI-only). Adds a row to llm_usage with the
+    tokens used (`prepradar usage` sums them); logging never fails the call."""
+    extra = {"reasoning_effort": reasoning["effort"]} if reasoning else {}
+    if temperature is not None:
+        extra["temperature"] = temperature
+    resp = client().chat.completions.parse(
+        model=model, response_format=text_format, **extra,
+        messages=[{"role": "system", "content": instructions}, {"role": "user", "content": input}],
+    )
     if resp.usage is not None:
-        log_usage(kwargs["model"], purpose, resp.usage)
-    return resp
+        log_usage(model, purpose, resp.usage)
+    parsed = resp.choices[0].message.parsed
+    if parsed is None:
+        raise RuntimeError(f"{purpose}: the model returned no usable answer ({resp.choices[0].finish_reason})")
+    return SimpleNamespace(output_parsed=parsed)
 
 
 class TagMatch(BaseModel):

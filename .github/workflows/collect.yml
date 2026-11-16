@@ -4,7 +4,8 @@
 # With paste_url + paste_text it adds one copied post instead (docs/deploy.md 3e).
 #
 # Secrets (Settings → Secrets and variables → Actions): DATABASE_URL (Neon),
-# OPENAI_API_KEY, TAVILY_API_KEY, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
+# OPENAI_API_KEY or GEMINI_API_KEY (OpenAI wins if both are set), TAVILY_API_KEY,
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 name: collect
 
 on:
@@ -68,6 +69,7 @@ jobs:
       - name: Collect
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
           PYTHONUNBUFFERED: "1"  # each line when it happens, so the log's timestamps show where time goes
           REFRESH: ${{ inputs.refresh && '1' || '' }}
