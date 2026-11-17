@@ -25,9 +25,9 @@ class Provider:
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-# Gemini's free tier: Flash ~20 requests a day, Flash-Lite ~500, both ~10 a minute. Raise
-# LLM_RPM on a paid key.
-_GEMINI_RPM = float(os.getenv("LLM_RPM", "8"))
+# Gemini's free tier: Flash ~20 requests a day, Flash-Lite ~500, both a few a minute (8 a
+# minute was rate limited 74 times in one run on 2026-11-17). Raise LLM_RPM on a paid key.
+_GEMINI_RPM = float(os.getenv("LLM_RPM", "5"))
 # Groq's free tier: 8,000 tokens a minute and 200,000 a day per model, and a request's
 # max_output counts against both. So requests are capped (~16k chars + 2.5k tokens out),
 # one a minute, and each model is its own provider with its own quota.

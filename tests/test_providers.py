@@ -69,3 +69,17 @@ def test_too_big_requests_are_cut_for_pages_and_skipped_for_guides(calls):
     assert calls[-1] == ("b", "b-main", 2_000)  # cut, but never below 2,000 chars
     with pytest.raises(extractor.NoProviderLeft):
         ask(purpose="guide", input="x" * 5_000)
+
+
+GEMINI_429 = ("You exceeded your current quota, please check your plan and billing details. For more information "
+              "on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. " + "x" * 300 +
+              " 'quotaId': 'GenerateRequestsPer{period}PerProjectPerModel-FreeTier' 'retryDelay': '37s'")
+
+
+def test_gemini_names_daily_or_per_minute_late_in_the_body():
+    day = _error(RateLimitError, 429, GEMINI_429.format(period="Day"))
+    minute = _error(RateLimitError, 429, GEMINI_429.format(period="Minute"))
+    assert extractor._daily(day) and not extractor._daily(minute)
+    assert extractor._retry_after(minute) == 38
+    assert extractor._retry_after(_error(RateLimitError, 429, "Please try again in 7.5s")) == 8.5
+    assert extractor._retry_after(_error(RateLimitError, 429, "slow down")) == 60

@@ -77,10 +77,23 @@ _DAILY = re.compile(r"per ?day|\bTPD\b|\bRPD\b", re.I)
 _CUTTABLE = {"extract", "experiences", "classify"}
 
 
+def _full(e: Exception) -> str:
+    """The server's own words. Gemini names the limit (…PerDay… or …PerMinute…) and the
+    wait it suggests (retryDelay) deep in the body, after a generic message."""
+    return re.sub(r"\s+", " ", str(getattr(e, "body", None) or e))
+
+
 def _short(e: Exception) -> str:
-    """The server's own words: they name which limit was hit."""
-    body = getattr(e, "body", None)
-    return re.sub(r"\s+", " ", str(body or e))[:300]
+    return _full(e)[:300]
+
+
+def _daily(e: Exception) -> bool:
+    return bool(_DAILY.search(_full(e)))
+
+
+def _retry_after(e: Exception) -> float:
+    m = re.search(r"retryDelay\W+(\d+(?:\.\d+)?)s", _full(e)) or re.search(r"try again in (\d+(?:\.\d+)?)s", _full(e))
+    return min(float(m.group(1)) + 1, 60) if m else 60
 
 
 def parse(purpose: str, *, model: str, instructions: str, input: str, text_format, reasoning=None,
@@ -107,7 +120,7 @@ def parse(purpose: str, *, model: str, instructions: str, input: str, text_forma
                          reasoning, temperature)
         except RateLimitError as e:
             last = e
-            if _DAILY.search(_short(e)):
+            if _daily(e):
                 _spent.add(p.name)
                 print(f"  {p.name}: today's quota is used up, switching provider ({_short(e)[:120]})")
             else:
@@ -141,12 +154,14 @@ def _call(p: config.Provider, purpose: str, model: str, instructions: str, input
             )
             break
         except RateLimitError as e:
-            # the client's own retries wait seconds; per-minute limits need a full minute,
-            # and a used-up daily quota won't come back today
-            if attempt == 3 or _DAILY.search(_short(e)):
+            # A per-minute limit: wait as long as the server says, once, then let the next
+            # provider take the call (waiting minutes per call ran a job out of time). A
+            # used-up daily quota won't come back today.
+            if attempt >= 1 or _daily(e):
                 raise
-            print(f"  {p.name}: rate limited ({purpose}), waiting a minute: {_short(e)[:120]}")
-            time.sleep(60)
+            wait = _retry_after(e)
+            print(f"  {p.name}: rate limited ({purpose}), waiting {wait:.0f}s")
+            time.sleep(wait)
         except InternalServerError as e:
             # 503 "overloaded" usually passes within a minute; the client already retried briefly
             if attempt >= 2:
