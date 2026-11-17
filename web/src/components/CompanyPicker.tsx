@@ -16,6 +16,8 @@ type Option = { kind: "company"; name: string; questions: number } | { kind: "re
 // The typed text is local state. App renders this with key={company}, so when the
 // company changes from outside (a request finished), the box starts fresh with the
 // new name instead of needing an effect to copy the prop into state.
+const nameKey = (name: string) => name.replace(/[\s.'-]/g, "");
+
 export function CompanyPicker({ companies, company, onPick, onRequest }: Props) {
   const [text, setText] = useState(company ?? "");
   const [open, setOpen] = useState(false);
@@ -25,10 +27,12 @@ export function CompanyPicker({ companies, company, onPick, onRequest }: Props) 
   // Derived on every render from the text: nothing to keep in sync.
   const query = text.trim().toLowerCase().replace(/\s+/g, " ");
   const showAll = query === "" || query === company;
+  // spaces, dots and dashes don't count: "service now" finds "servicenow"
+  const key = nameKey(query);
   const options: Option[] = companies
-    .filter((c) => showAll || c.company.includes(query))
+    .filter((c) => showAll || nameKey(c.company).includes(key))
     .map((c) => ({ kind: "company" as const, name: c.company, questions: c.questions }));
-  if (query.length >= 2 && !companies.some((c) => c.company === query)) {
+  if (query.length >= 2 && !companies.some((c) => nameKey(c.company) === key)) {
     options.push({ kind: "request", name: query });
   }
 

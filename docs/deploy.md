@@ -196,9 +196,25 @@ OpenAI wins when both are, so remove the OpenAI key to switch.
    `OPENAI_MODEL` lines.
 
 Models: `gemini-3.5-flash` for reading pages and judging, `gemini-3.5-flash-lite` for the
-quick search (2.5 is closed to new keys; 3.8-flash was overloaded on 2026-11-16) (override with `OPENAI_MODEL`, `JUDGE_MODEL`, and the Worker's `QUICK_MODEL`).
-On Gemini, 3 pages are read at once instead of 6 and rate-limit errors are retried, because the free
-tier allows only a few requests a minute. A collection takes longer there.
+quick search (2.5 is closed to new keys; 3.8-flash was overloaded on 2026-11-16; the Worker's
+`QUICK_MODEL` overrides it). On Gemini, 3 pages are read at once instead of 6, because the
+free tier allows only a few requests a minute. A collection takes longer there.
+
+### 3g. Free fallbacks (Gemini Flash-Lite, Groq)
+
+The collector tries providers in order: OpenAI (if its key is set), Gemini Flash, Gemini
+Flash-Lite, Groq gpt-oss-120b, Groq gpt-oss-20b. When one's daily quota runs out, the run
+moves to the next and keeps going; an overload or a request too big moves just that call.
+Free-tier budgets (Nov 2026): Flash ~20 requests a day, Flash-Lite ~500, each Groq model
+200k tokens a day at 8k a minute (about 25 page reads, one a minute; long pages are cut).
+`LLM_PROVIDERS=gemini-lite,groq` picks and orders them.
+
+To add Groq: get a key at console.groq.com → API Keys, copy it, then
+```
+pbpaste | tr -d '[:space:]' | gh secret set GROQ_API_KEY
+```
+and add `GROQ_API_KEY=...` to `.env`. (A key you already use in another project shares its
+daily quota with that project.)
 
 ## 4. Take real money
 

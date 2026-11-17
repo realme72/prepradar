@@ -89,8 +89,8 @@ export function RequestPanel({ name, onReady }: Props) {
 
   // "ready" comes from the server (the company is in the published index).
   useEffect(() => {
-    if (status === "ready") onReady(name);
-  }, [status, name, onReady]);
+    if (status === "ready") onReady(request?.company ?? name); // the site's spelling
+  }, [status, request, name, onReady]);
 
   function onEvent(e: QuickEvent) {
     if (e.type === "sources") {
@@ -116,7 +116,7 @@ export function RequestPanel({ name, onReady }: Props) {
     setError(null);
     try {
       const r = await streamQuick(name, onEvent);
-      if (r.status === "ready") onReady(name);
+      if (r.status === "ready") onReady(r.company ?? name);
       if (r.status === "cached") {
         setQuick(r.result);
         setPhase("done");
@@ -134,7 +134,7 @@ export function RequestPanel({ name, onReady }: Props) {
     setNotifyError(null);
     try {
       const r = await notifyWhenReady(name, pushKey);
-      if (r.status === "ready") onReady(name);
+      if (r.status === "ready") onReady(r.company ?? name);
       setNotify("on");
     } catch (e) {
       setNotifyError((e as Error).message);

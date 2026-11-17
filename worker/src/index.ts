@@ -240,13 +240,29 @@ export function companyName(raw: unknown): string | null {
   return /^[a-z0-9][a-z0-9 &.'-]{0,38}[a-z0-9.]$/.test(name) ? name : null;
 }
 
-// The published index lists every company on the site. (The assets binding ignores the
+// "service now", "servicenow" and "service-now" are one company: same key.
+export const nameKey = (name: string) => name.replace(/[\s.'-]/g, "");
+
+// The companies on the site, from the published index. (The assets binding ignores the
 // host, so a cron run, which has no request, can ask too.)
-async function onSite(env: Env, name: string): Promise<boolean> {
+async function siteCompanies(env: Env): Promise<string[]> {
   const res = await env.ASSETS.fetch(new Request("https://assets.local/data/index.json"));
-  if (!res.ok) return false;
-  const index = (await res.json()) as { companies: { company: string }[] };
-  return index.companies.some((c) => c.company === name);
+  if (!res.ok) return [];
+  return ((await res.json()) as { companies: { company: string }[] }).companies.map((c) => c.company);
+}
+
+async function onSite(env: Env, name: string): Promise<boolean> {
+  return (await siteCompanies(env)).includes(name);
+}
+
+// A typed name as the company's one spelling: the site's, else the first one requested
+// (KV "alias:<key>"), else as typed. Two spellings would start two collections.
+async function resolveName(env: Env, raw: unknown): Promise<string> {
+  const name = companyName(raw);
+  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const key = nameKey(name);
+  return (await siteCompanies(env)).find((c) => nameKey(c) === key)
+    ?? (await env.REQUESTS.get(`alias:${key}`)) ?? name;
 }
 
 async function requestState(env: Env, name: string) {
@@ -260,8 +276,7 @@ async function count(env: Env, key: string): Promise<number> {
 }
 
 async function requestStatus(req: Request, env: Env) {
-  const name = companyName(new URL(req.url).searchParams.get("company"));
-  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const name = await resolveName(env, new URL(req.url).searchParams.get("company"));
   return json(await requestState(env, name));
 }
 
@@ -301,6 +316,7 @@ async function startCollection(req: Request, env: Env, user: string, name: strin
   const record: RequestRecord = { status: "queued", at: now() };
   await Promise.all([
     env.REQUESTS.put(`company:${name}`, JSON.stringify(record), { expirationTtl: RETRY_AFTER.empty }),
+    env.REQUESTS.put(`alias:${nameKey(name)}`, name),
     used(),
   ]);
   return { company: name, ...record };
@@ -308,8 +324,7 @@ async function startCollection(req: Request, env: Env, user: string, name: strin
 
 async function requestCompany(req: Request, env: Env) {
   const user = await signedInUser(req, env);
-  const name = companyName((await body<{ company?: unknown }>(req)).company);
-  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const name = await resolveName(env, (await body<{ company?: unknown }>(req)).company);
   return json(await startCollection(req, env, user, name));
 }
 
@@ -318,8 +333,7 @@ async function requestCompany(req: Request, env: Env) {
 const quickKey = (name: string) => `quick:${name}`;
 
 async function quickCached(req: Request, env: Env) {
-  const name = companyName(new URL(req.url).searchParams.get("company"));
-  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const name = await resolveName(env, new URL(req.url).searchParams.get("company"));
   const r = await env.REQUESTS.get(quickKey(name));
   if (!r) throw new HttpError(404, "No quick results yet");
   return new Response(r, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -344,8 +358,7 @@ function llmFor(env: Env): Llm | null {
 
 async function quick(req: Request, env: Env, ctx: ExecutionContext) {
   const user = await signedInUser(req, env);
-  const name = companyName((await body<{ company?: unknown }>(req)).company);
-  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const name = await resolveName(env, (await body<{ company?: unknown }>(req)).company);
   if (await onSite(env, name)) return json({ company: name, status: "ready" });
   const cached = await env.REQUESTS.get<QuickResult>(quickKey(name), "json");
   if (cached) return json({ company: name, status: "cached", result: cached });
@@ -408,8 +421,7 @@ function pushKeys(env: Env): PushKeys | null {
 async function watch(req: Request, env: Env) {
   await signedInUser(req, env);
   const b = await body<{ company?: unknown; endpoint?: unknown }>(req);
-  const name = companyName(b.company), endpoint = validEndpoint(b.endpoint);
-  if (!name) throw new HttpError(400, "That doesn't look like a company name");
+  const name = await resolveName(env, b.company), endpoint = validEndpoint(b.endpoint);
   if (!endpoint) throw new HttpError(400, "This browser's notifications aren't supported");
   if (!pushKeys(env)) throw new HttpError(503, "Notifications open soon");
   const state = await requestState(env, name);

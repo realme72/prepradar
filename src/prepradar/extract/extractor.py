@@ -1,11 +1,12 @@
-"""Page text -> list[ExtractedQuestion] via structured output (OpenAI or Gemini, see config.LLM_PROVIDER)."""
+"""Page text -> list[ExtractedQuestion] via structured output (providers: config.PROVIDERS)."""
 import os
 import re
 import threading
 import time
 from types import SimpleNamespace
 
-from openai import OpenAI, RateLimitError
+from openai import (APIStatusError, BadRequestError, InternalServerError, LengthFinishReasonError, OpenAI,
+                    RateLimitError)
 from pydantic import BaseModel, Field
 
 from prepradar import config
@@ -15,18 +16,13 @@ from prepradar.extract.prompts import (CATEGORY_RULES, CLASSIFY, DSA_SPECIFIC_RU
 from prepradar.models import (GENERIC_TAG, Category, ExperienceDraft, ExperienceResult, ExtractedQuestion, Function,
                               ExtractionResult, Page, PageCheck)
 
-_client: OpenAI | None = None
+_clients: dict[str, OpenAI] = {}
 
 
-def client() -> OpenAI:
-    global _client
-    if _client is None:
-        if config.LLM_PROVIDER == "gemini":
-            _client = OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=config.GEMINI_BASE_URL,
-                             max_retries=config.LLM_RETRIES)
-        else:
-            _client = OpenAI(max_retries=config.LLM_RETRIES)  # reads OPENAI_API_KEY from env
-    return _client
+def client(p: config.Provider) -> OpenAI:
+    if p.name not in _clients:
+        _clients[p.name] = OpenAI(api_key=os.environ[p.key_env], base_url=p.base_url, max_retries=config.LLM_RETRIES)
+    return _clients[p.name]
 
 
 _usage_conn = None
@@ -56,50 +52,112 @@ def log_usage(model: str, purpose: str, u) -> None:
 
 
 _pace_lock = threading.Lock()
-_next_slot = 0.0
+_next_slot: dict[str, float] = {}
 
 
-def pace() -> None:
-    """Space model calls evenly, across threads, to stay under config.LLM_RPM."""
-    global _next_slot
-    if config.LLM_RPM <= 0:
+def pace(p: config.Provider) -> None:
+    """Space one provider's calls evenly, across threads, to stay under its rpm."""
+    if p.rpm <= 0:
         return
     with _pace_lock:
         now = time.monotonic()
-        slot = max(now, _next_slot)
-        _next_slot = slot + 60 / config.LLM_RPM
+        slot = max(now, _next_slot.get(p.name, 0.0))
+        _next_slot[p.name] = slot + 60 / p.rpm
     time.sleep(slot - now)
+
+
+class NoProviderLeft(RuntimeError):
+    pass
+
+
+_spent: set[str] = set()  # providers whose daily quota ran out during this run
+_DAILY = re.compile(r"per ?day|\bTPD\b|\bRPD\b", re.I)
+# Pages and their experiences can be cut to fit a smaller provider (the start of a page
+# says the most); a guide or a judgement can't, so those skip it instead.
+_CUTTABLE = {"extract", "experiences", "classify"}
+
+
+def _short(e: Exception) -> str:
+    """The server's own words: they name which limit was hit."""
+    body = getattr(e, "body", None)
+    return re.sub(r"\s+", " ", str(body or e))[:300]
 
 
 def parse(purpose: str, *, model: str, instructions: str, input: str, text_format, reasoning=None,
           temperature=None):
     """One structured-output call: the answer as `text_format`, in `.output_parsed`.
-    Uses the chat completions API, which Gemini's OpenAI-compatible endpoint also
-    speaks (the newer Responses API is OpenAI-only). Adds a row to llm_usage with the
-    tokens used (`prepradar usage` sums them); logging never fails the call."""
-    extra = {"reasoning_effort": reasoning["effort"]} if reasoning else {}
+    Uses the chat completions API, which Gemini's and Groq's OpenAI-compatible endpoints
+    also speak. `model` names the role (config.OPENAI_MODEL or config.JUDGE_MODEL); each
+    provider answers with its own model for that role. Tries config.PROVIDERS in order:
+    a used-up daily quota drops a provider for the rest of the run, while an overload, a
+    request too big or an unusable answer moves only this call on. Adds a row to
+    llm_usage with the tokens used; logging never fails the call."""
+    judge = model == config.JUDGE_MODEL != config.OPENAI_MODEL
+    last: Exception | None = None
+    for p in config.PROVIDERS:
+        if p.name in _spent:
+            continue
+        text = input
+        if p.max_chars and len(instructions) + len(input) > p.max_chars:
+            if purpose not in _CUTTABLE:
+                continue
+            text = input[: max(p.max_chars - len(instructions), 2_000)]
+        try:
+            return _call(p, purpose, p.judge_model if judge else p.model, instructions, text, text_format,
+                         reasoning, temperature)
+        except RateLimitError as e:
+            last = e
+            if _DAILY.search(_short(e)):
+                _spent.add(p.name)
+                print(f"  {p.name}: today's quota is used up, switching provider ({_short(e)[:120]})")
+            else:
+                print(f"  {p.name}: still rate limited ({purpose}), trying the next provider")
+        except (InternalServerError, LengthFinishReasonError, ValueError, BadRequestError) as e:  # ValueError: no usable answer
+            last = e
+            print(f"  {p.name} failed ({purpose}): {type(e).__name__}: {_short(e)[:160]}")
+        except APIStatusError as e:
+            if e.status_code != 413:  # 413: too big for this provider's per-minute budget
+                raise
+            last = e
+            print(f"  {p.name}: request too large ({purpose}), trying the next provider")
+    raise NoProviderLeft(f"{purpose}: no AI provider could answer"
+                         f" ({type(last).__name__ + ': ' + _short(last) if last else 'none configured or all used up'})")
+
+
+def _call(p: config.Provider, purpose: str, model: str, instructions: str, input: str, text_format, reasoning,
+          temperature):
+    effort = reasoning["effort"] if reasoning else p.reasoning
+    extra = {"reasoning_effort": effort} if effort else {}
     if temperature is not None:
         extra["temperature"] = temperature
+    if p.max_output:
+        extra["max_completion_tokens"] = p.max_output
     for attempt in range(4):
-        pace()
+        pace(p)
         try:
-            resp = client().chat.completions.parse(
+            resp = client(p).chat.completions.parse(
                 model=model, response_format=text_format, **extra,
                 messages=[{"role": "system", "content": instructions}, {"role": "user", "content": input}],
             )
             break
         except RateLimitError as e:
             # the client's own retries wait seconds; per-minute limits need a full minute,
-            # and a used-up daily quota (Gemini free tier: 20 a day) won't come back today
-            if attempt == 3 or "per day" in str(e.body or e):
+            # and a used-up daily quota won't come back today
+            if attempt == 3 or _DAILY.search(_short(e)):
                 raise
-            print(f"  rate limited ({purpose}), waiting a minute")
+            print(f"  {p.name}: rate limited ({purpose}), waiting a minute: {_short(e)[:120]}")
             time.sleep(60)
+        except InternalServerError as e:
+            # 503 "overloaded" usually passes within a minute; the client already retried briefly
+            if attempt >= 2:
+                raise
+            print(f"  {p.name}: overloaded ({purpose}), waiting {30 * (attempt + 1)}s")
+            time.sleep(30 * (attempt + 1))
     if resp.usage is not None:
         log_usage(model, purpose, resp.usage)
     parsed = resp.choices[0].message.parsed
     if parsed is None:
-        raise RuntimeError(f"{purpose}: the model returned no usable answer ({resp.choices[0].finish_reason})")
+        raise ValueError(f"{purpose}: {p.name} returned no usable answer ({resp.choices[0].finish_reason})")
     return SimpleNamespace(output_parsed=parsed)
 
 

@@ -133,7 +133,7 @@ export type QuickEvent =
 // Starts a quick pass. The Worker answers with plain JSON when there's nothing to run
 // (already on the site, or a recent result), else with one JSON event per line.
 export async function streamQuick(company: string, onEvent: (e: QuickEvent) => void):
-    Promise<{ status: "ready" } | { status: "cached"; result: QuickResult } | { status: "streamed" }> {
+    Promise<{ status: "ready"; company: string } | { status: "cached"; result: QuickResult } | { status: "streamed" }> {
   const res = await fetch("/api/quick", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },

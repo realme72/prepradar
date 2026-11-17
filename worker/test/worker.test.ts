@@ -246,6 +246,16 @@ test("requesting a company starts the collect workflow once, within the daily ca
   assert.equal(dispatched.length, DAILY_LIMIT.user);
 });
 
+test("spellings of one company share a request and the site's name", async () => {
+  const token = await signIn();
+  await call("POST", "/api/requests", { company: "Service Now" }, token);
+  const again = await read(await call("POST", "/api/requests", { company: "servicenow" }, await signIn("2222")));
+  assert.deepEqual([again.company, again.status], ["service now", "queued"]);
+  assert.equal(dispatched.length, 1);
+  // a company on the site, typed another way
+  assert.equal((await read(await call("GET", "/api/requests?company=ama-zon"))).company, "amazon");
+});
+
 test("a company found empty isn't collected again for a week", async () => {
   REQUESTS.map.set("company:nosuchco", JSON.stringify({ status: "empty", at: now() - 86400 }));
   const res = await read(await call("POST", "/api/requests", { company: "nosuchco" }, await signIn()));
