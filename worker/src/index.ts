@@ -134,15 +134,19 @@ const meBody = (r: UserRecord | null) => ({
 let plan: Plan | null = null; // the price rarely changes; one fetch per isolate
 
 async function config(_req: Request, env: Env) {
-  // Half-configured (e.g. no Google client yet): the site says "opens soon" instead of
-  // showing a sign-in button that can't work.
-  if (!env.GOOGLE_CLIENT_ID || !env.RAZORPAY_KEY_ID || !env.RAZORPAY_PLAN_ID) {
-    throw new HttpError(503, "Accounts aren't set up yet");
+  // No Google client yet: the site says "opens soon" instead of a sign-in button that can't work.
+  if (!env.GOOGLE_CLIENT_ID) throw new HttpError(503, "Accounts aren't set up yet");
+  // A payments problem (no keys, or a live plan id with test keys) only hides Subscribe;
+  // sign-in and company search keep working. A failed lookup is retried on the next call.
+  if (!plan && env.RAZORPAY_KEY_ID && env.RAZORPAY_PLAN_ID) {
+    plan = await rzp(env).plan(env.RAZORPAY_PLAN_ID).catch((e) => {
+      console.error("Razorpay plan lookup failed:", (e as Error).message);
+      return null;
+    });
   }
-  plan ??= await rzp(env).plan(env.RAZORPAY_PLAN_ID);
-  return json({ google_client_id: env.GOOGLE_CLIENT_ID, razorpay_key_id: env.RAZORPAY_KEY_ID,
+  return json({ google_client_id: env.GOOGLE_CLIENT_ID, razorpay_key_id: env.RAZORPAY_KEY_ID || null,
                 push_key: pushKeys(env)?.publicKey ?? null,
-                plan: { amount: plan.item.amount, currency: plan.item.currency, period: plan.period } });
+                plan: plan && { amount: plan.item.amount, currency: plan.item.currency, period: plan.period } });
 }
 
 async function session(req: Request, env: Env) {

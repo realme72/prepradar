@@ -8,7 +8,7 @@ import { useApi } from "./hooks/useApi";
 import { Cancelled, cancelSubscription, subscribe, type Me } from "./payments";
 import { resetLockedContent } from "./static";
 
-type Config = { google_client_id: string; razorpay_key_id: string; push_key?: string | null; plan: { amount: number; currency: string; period: string } };
+type Config = { google_client_id: string; razorpay_key_id: string | null; push_key?: string | null; plan: { amount: number; currency: string; period: string } | null };
 
 type Account = {
   enabled: boolean;               // false in local dev (FastAPI): nothing is locked there
@@ -84,7 +84,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 }
 
 const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN")}`;
-export const priceLabel = (c: Config | null) => (c ? `${rupees(c.plan.amount)}/${c.plan.period === "monthly" ? "month" : c.plan.period}` : "");
+export const priceLabel = (c: Config | null) => (c?.plan ? `${rupees(c.plan.amount)}/${c.plan.period === "monthly" ? "month" : c.plan.period}` : "");
 
 // Google draws its own button into a div; a ref gives us that DOM node.
 export function GoogleButton() {
@@ -157,7 +157,7 @@ export function Paywall({ what }: { what: string }) {
         <p>Every question, every candidate story with its round-by-round timeline, and the complete prep guide, for
            all companies.{price && ` ${price}, cancel anytime.`}</p>
       </div>
-      {!account.config ? (
+      {!account.config?.plan ? (
         <span className="muted small">Subscriptions open soon.</span>
       ) : account.session ? (
         <button className="primary" disabled={state.busy} onClick={go}>

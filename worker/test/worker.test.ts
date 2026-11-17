@@ -199,10 +199,17 @@ test("access rules", () => {
   assert.equal(hasAccess({ subscription_id: "s", status: "expired", current_end: 2000 }, t), false);
 });
 
-test("config is unavailable until Google and Razorpay are both configured", async () => {
+test("config is unavailable until Google sign-in is configured", async () => {
   const half = { ...env, GOOGLE_CLIENT_ID: "" } as Env;
   const res = await worker.fetch(new Request("https://prepradar.test/api/config"), half, ctx);
   assert.equal(res.status, 503);
+});
+
+test("without Razorpay, config still works and only the plan is missing", async () => {
+  const noPay = { ...env, RAZORPAY_KEY_ID: "" } as Env;
+  const c = await read(await worker.fetch(new Request("https://prepradar.test/api/config"), noPay, ctx));
+  assert.equal(c.google_client_id, CLIENT_ID);
+  assert.equal(c.plan, null);
 });
 
 test("config exposes only public values; other paths are static files", async () => {
