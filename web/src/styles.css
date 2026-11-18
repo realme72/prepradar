@@ -288,6 +288,7 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 }
 .request p { margin: 8px 0 0; line-height: 1.5; }
 .request button { margin-top: 12px; }
+.request > button.link { display: block; } /* own line, not glued to the company name */
 .request-signin { align-items: flex-start; margin-top: 12px; }
 .pulse {
   display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%;
