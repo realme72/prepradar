@@ -26,9 +26,9 @@ export function QuestionCard({ question: q }: Props) {
         {year && <span className="muted">{year}</span>}
       </div>
       <div className="card-sources">
-        {(q.urls ?? []).map((u) => (
-          <a key={u} href={u} target="_blank" rel="noreferrer">{hostOf(u)}</a>
-        ))}
+        {/* where it was reported, as text (no links off the site: payment gateway review);
+            two posts on one site show the site once */}
+        {[...new Set((q.urls ?? []).map(hostOf))].map((h) => <span key={h}>{h}</span>)}
       </div>
     </article>
   );

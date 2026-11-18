@@ -117,7 +117,7 @@ function ExperienceCard({ story: e }: { story: Experience }) {
       )}
 
       <div className="card-sources">
-        <a href={e.url} target="_blank" rel="noreferrer">{new URL(e.url).hostname.replace(/^www\./, "")}</a>
+        <span>{new URL(e.url).hostname.replace(/^www\./, "")}</span>
       </div>
     </article>
   );

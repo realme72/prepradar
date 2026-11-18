@@ -8,7 +8,7 @@ import { priceLabel, useAccount } from "../account";
 export const BUSINESS = {
   name: "Gaurav Bharti",
   email: "prepradar.review@gmail.com",
-  address: "", // operating address, as in Razorpay KYC
+  address: "A.B. Nagar, Unnao, Uttar Pradesh 209801, India",
   updated: "18 November 2026",
 };
 

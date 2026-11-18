@@ -36,12 +36,15 @@ function makeLink(questions: Record<string, string>) {
     if (href.startsWith("#Q")) {
       return <a href={href} className="cite" title={questions[href.slice(1)]}>{children}</a>;
     }
+    // Sources show where, as text: the site doesn't link off-site (payment gateway review).
     const source = /^S\d+$/.test(String(children));
-    return (
-      <a href={href} className={source ? "cite" : undefined} target="_blank" rel="noreferrer">
-        {children}
-      </a>
-    );
+    let host = href;
+    try {
+      host = new URL(href).hostname.replace(/^www\./, "");
+    } catch {
+      // not a URL: keep it as written
+    }
+    return <span className={source ? "cite" : undefined} title={source ? host : undefined}>{children}</span>;
   };
 }
 

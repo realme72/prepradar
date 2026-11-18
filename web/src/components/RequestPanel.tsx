@@ -189,7 +189,7 @@ export function RequestPanel({ name, onReady }: Props) {
                   <div className="card-meta">
                     <span className="badge">{q.category}</span>
                     {q.posted && <span className="muted">posted {monthLabel(q.posted)}</span>}
-                    {src && <a href={src.url} target="_blank" rel="noreferrer">{hostOf(src.url)}</a>}
+                    {src && <span className="source">{hostOf(src.url)}</span>}
                   </div>
                 </article>
               );

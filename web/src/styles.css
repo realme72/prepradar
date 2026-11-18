@@ -135,9 +135,9 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 .badge { background: var(--accent-soft); color: var(--cyan); border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 2px; padding: 1px 7px; }
 .badge.strong { background: var(--yellow); border-color: var(--yellow); color: #111; font-weight: 700; box-shadow: 0 0 10px rgba(247, 243, 42, 0.45); }
 .card-sources { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; font-family: var(--mono); font-size: 0.72rem; }
-.card-sources a { color: var(--muted); text-decoration: none; }
-.card-sources a::before { content: "↗ "; color: var(--magenta); }
-.card-sources a:hover { color: var(--cyan); }
+/* where a question was reported: plain text, the site doesn't link off-site */
+.card-sources { color: var(--muted); }
+.card-sources::before { content: "reported on"; opacity: 0.7; }
 
 .vague { margin-top: 24px; font-size: 0.9rem; }
 .vague ul { color: var(--muted); }
@@ -191,7 +191,7 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 }
 .guide strong { color: #fff; }
 .guide a { color: var(--cyan); }
-.guide a.cite {
+.guide .cite {
   text-decoration: none; margin: 0 1px; background: rgba(182, 156, 255, 0.1); color: var(--magenta);
   border: 1px solid rgba(182, 156, 255, 0.3); border-radius: 2px; padding: 0 4px; font-family: var(--mono); font-size: 0.78em;
 }
