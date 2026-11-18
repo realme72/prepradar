@@ -7,6 +7,7 @@ import { ExperiencesTab } from "./components/ExperiencesTab";
 import { GuideTab } from "./components/GuideTab";
 import { LockedQuestionCard, QuestionCard } from "./components/QuestionCard";
 import { RequestPanel } from "./components/RequestPanel";
+import { Footer } from "./components/Policies";
 import { RunPanel } from "./components/RunPanel";
 import { useApi } from "./hooks/useApi";
 import { reloadIndex } from "./static";
@@ -264,6 +265,7 @@ export default function App() {
           )}
         </>
       )}
+      <Footer />
     </div>
   );
 }

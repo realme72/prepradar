@@ -299,3 +299,29 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 .quick-list .card { animation: arrive 0.25s ease-out; }
 @keyframes arrive { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .quick-list .card { animation: none; } }
+
+/* Footer and the policy pages (pricing, terms, privacy, refunds, delivery, contact) */
+.site-footer {
+  display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+  margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--border);
+  font-family: var(--mono); font-size: 0.78rem;
+}
+.site-footer a { color: var(--muted); text-decoration: none; }
+.site-footer a:hover { color: var(--cyan); }
+.site-footer .muted { margin-left: auto; }
+.home-link { text-decoration: none; color: inherit; }
+.policy article { max-width: 720px; line-height: 1.65; }
+.policy h2 { font-family: var(--display); font-size: 1.3rem; letter-spacing: 0.04em; margin: 8px 0 4px; }
+.policy h3 { font-family: var(--mono); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em;
+             color: var(--cyan); margin: 28px 0 6px; }
+.policy li { margin-bottom: 8px; }
+.policy a { color: var(--magenta); }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0 24px; }
+.plan { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+.plan.featured { border-color: var(--cyan); box-shadow: 0 0 18px rgba(0, 240, 255, 0.12); }
+.plan ul { padding-left: 18px; margin: 12px 0 16px; }
+.plan-price { font-family: var(--display); font-size: 1.6rem; margin: 8px 0 0; }
+.policy a.button-link { display: inline-block; text-decoration: none; color: var(--bg); }
+.contact { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; }
+.contact dt { color: var(--muted); font-family: var(--mono); font-size: 0.85rem; }
+.contact dd { margin: 0; }
